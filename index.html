@@ -119,6 +119,7 @@
       <div class="stat"><b id="stScans">0</b><span>bucăți scanate</span></div>
       <div class="stat"><b id="stBoxes">0</b><span>cutii</span></div>
       <div class="stat"><b id="stEans">0</b><span>produse (EAN)</span></div>
+      <div class="stat"><b id="stNok" style="color:#fca5a5">0</b><span>NOK</span></div>
     </div>
     <div class="card" style="padding:6px 8px">
       <table><thead><tr><th>Cutia</th><th>Produs</th><th style="text-align:right">Buc</th><th></th></tr></thead><tbody id="boxRows"></tbody></table>
@@ -129,7 +130,8 @@
       <button class="btn warn" id="btnClose">✔ Închide sesiunea</button>
     </div>
     <button class="btn err" id="btnDelete" style="display:none">🗑 Șterge sesiunea</button>
-    <p class="muted" style="text-align:center">Apasă pe o cutie pentru denumire, loturi (batch) sau „plină”. O cutie plină nu mai primește bucăți — următoarea scanare a aceluiași EAN deschide o cutie nouă.</p>
+    <button class="btn sec" id="btnNextLot">🏷 Următoarea cutie fără lot</button>
+    <p class="muted" style="text-align:center">Apasă pe o cutie pentru denumire, loturi (batch, OK/NOK) sau „plină”. O cutie plină nu mai primește bucăți — următoarea scanare a aceluiași EAN deschide o cutie nouă.</p>
   </section>
 
   <!-- ===== USERS (admin) ===== -->
@@ -181,15 +183,16 @@
   <div class="switch"><span>Cutie plină (nu mai primește bucăți)</span><input type="checkbox" id="mbFull"></div>
   <h3 style="margin-top:14px">Loturi (batch)</h3>
   <div id="lotWarn" class="muted" style="margin-bottom:6px"></div>
-  <table style="margin-bottom:8px"><tbody id="lotRows"></tbody></table>
+  <table style="margin-bottom:8px"><thead><tr><th>Batch</th><th style="text-align:right">OK</th><th style="text-align:right">NOK</th><th></th></tr></thead><tbody id="lotRows"></tbody></table>
   <div class="row" style="align-items:flex-end">
-    <div style="flex:0 0 92px"><label>Bucăți</label><input id="lotQty" type="number" inputmode="numeric" min="1" placeholder="10"></div>
-    <div><label>Batch (exact 8 cifre) <span id="lotCount" class="muted"></span></label><input id="lotBatch" placeholder="8 cifre" inputmode="numeric" maxlength="8" autocomplete="off" style="font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:3px;font-size:22px"></div>
+    <div style="flex:0 0 80px"><label>OK</label><input id="lotOk" type="number" inputmode="numeric" min="0" placeholder="0"></div>
+    <div style="flex:0 0 80px"><label>NOK</label><input id="lotNok" type="number" inputmode="numeric" min="0" placeholder="0"></div>
+    <div><label>Batch (8 cifre) <span id="lotCount" class="muted"></span></label><input id="lotBatch" placeholder="8 cifre" inputmode="numeric" maxlength="8" autocomplete="off" style="font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:3px;font-size:22px"></div>
     <button class="btn sec small" id="lotMic" style="flex:0 0 58px;font-size:22px;padding:8px 0" title="Dictează batch">🎤</button>
   </div>
   <div id="lotHeard" class="muted" style="min-height:18px;margin-top:4px"></div>
   <div class="row"><button class="btn sec" id="lotRead">🔊 Citește</button><button class="btn" id="lotAdd">＋ Adaugă lot</button></div>
-  <button class="btn" id="mbSave" style="margin-top:16px">Salvează cutia</button>
+  <div class="row" style="margin-top:16px"><button class="btn" id="mbSave" style="margin:0">Salvează cutia</button><button class="btn sec" id="mbSaveNext" style="margin:0">Salvează și următoarea →</button></div>
   <button class="btn sec" id="mbCancel">Renunță</button>
 </div></div>
 
@@ -199,8 +202,8 @@
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
          updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentSingleTabManager, doc, collection, setDoc, getDoc, updateDoc, deleteDoc,
-         onSnapshot, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { initializeFirestore, persistentLocalCache, persistentSingleTabManager, doc, collection, setDoc, getDoc, updateDoc, deleteDoc, addDoc,
+         onSnapshot, query, orderBy, limit, runTransaction, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 /* ================= CONFIG FIREBASE – COMPLETEAZĂ AICI ================= */
 const firebaseConfig = {
@@ -284,7 +287,7 @@ onAuthStateChanged(auth,async user=>{
   }catch(e){$('lErr').textContent='Eroare la citirea contului: '+(e.code||e.message);await signOut(auth);}
 });
 $('btnLogout').onclick=async()=>{if(confirmTwice($('btnLogout'),'⎋','Sigur?')){await signOut(auth);}};
-function teardown(){[unsubSessions,unsubCur,unsubUsers,unsubCfg].forEach(u=>u&&u());unsubSessions=unsubCur=unsubUsers=unsubCfg=null;cur=null;
+function teardown(){[unsubSessions,unsubCur,unsubUsers,unsubCfg,unsubScans].forEach(u=>u&&u());unsubSessions=unsubCur=unsubUsers=unsubCfg=unsubScans=null;cur=null;curScans=[];
   ['btnUsers','btnSettings','btnLogout'].forEach(i=>$(i).style.display='none');$('whoami').textContent='';}
 function confirmTwice(btn,label,ask){if(btn.dataset.arm){delete btn.dataset.arm;btn.textContent=label;return true;}btn.dataset.arm='1';const old=btn.textContent;btn.textContent=ask;setTimeout(()=>{delete btn.dataset.arm;btn.textContent=label;},2500);return false;}
 
@@ -334,7 +337,8 @@ function speak(text){
   setTimeout(()=>fire(0),60);
 }
 function voiceStatus(s,warn){const el=$('voiceStatus');if(el){el.textContent=s;el.style.color=warn?'var(--warn)':'';}}
-function bucRo(n){return n===1?'o bucată':numRo(n)+' bucăți';}
+function numRoF(n){return numRo(n).replace(/doisprezece$/,'douăsprezece').replace(/doi$/,'două').replace(/unu$/,'una');}
+function bucRo(n){return n===1?'o bucată':numRoF(n)+' bucăți';}
 function sayBox(tpl,n){speak(tpl.replace('{n}',numRo(n)));}
 function vibe(p){if(cfg.vibe&&navigator.vibrate)try{navigator.vibrate(p)}catch(e){}}
 
@@ -346,7 +350,6 @@ function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.re
   if(id==='scrScan')focusScan();
 }
 $('btnBack').onclick=()=>{leaveSession();show('scrHome')};
-function leaveSession(){flushSave();if(unsubCur){unsubCur();unsubCur=null;}cur=null;}
 
 /* ================= HOME ================= */
 function renderSenders(){const s=$('fSender');const v=s.value;s.innerHTML='';senders.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;s.appendChild(o)});
@@ -357,9 +360,9 @@ function renderHome(){
   $('sessCount').textContent=sessions.length?sessions.length+' total':'';
   if(!sessions.length){list.innerHTML='<p class="muted" style="padding:14px;text-align:center">Nicio sesiune încă.</p>';return;}
   sessions.forEach(s=>{
-    const pcs=(s.boxes||[]).reduce((a,b)=>a+b.qty,0);
+    const t=s.totals;const pcs=t?` · ${t.pieces} buc${t.nok?` · <span style="color:#fca5a5">${t.nok} NOK</span>`:''}`:'';
     const d=document.createElement('div');d.className='sess';
-    d.innerHTML=`<div class="t"><b>${esc(s.sender)}</b> · ${s.pallets||0} pal.${s.ref?' · '+esc(s.ref):''}<br><span class="muted">${fmtDate(s.createdAt)} · ${(s.boxes||[]).length} cutii · ${pcs} buc · ${esc(s.createdByName||'')}</span></div>
+    d.innerHTML=`<div class="t"><b>${esc(s.sender)}</b> · ${s.pallets||0} pal.${s.ref?' · '+esc(s.ref):''}<br><span class="muted">${fmtDate(s.createdAt)} · ${(s.boxes||[]).length} cutii${pcs} · ${esc(s.createdByName||'')}</span></div>
       <span class="badge ${s.closedAt?'':'open'}">${s.closedAt?'închisă':'deschisă'}</span>`;
     d.onclick=()=>openSession(s.id);list.appendChild(d);
   });
@@ -369,67 +372,96 @@ $('btnStart').onclick=async()=>{
   let sender=$('fSender').value;
   if(sender==='__other'){sender=$('fSenderOther').value.trim();if(!sender){toast('Scrie numele expeditorului');return;}
     if(!senders.includes(sender)&&me.role==='admin'){try{await setDoc(doc(db,'config','app'),{senders:[...senders,sender]},{merge:true});}catch(e){}}}
-  const ref=doc(collection(db,'sessions'));
-  const s={sender,pallets:parseInt($('fPallets').value)||0,ref:$('fRef').value.trim(),createdAt:Date.now(),closedAt:null,boxes:[],scans:[],nextBox:1,createdBy:me.uid,createdByName:me.name,updatedAt:Date.now()};
+  const ref=sessionRefForStart();
+  const s={sender,pallets:parseInt($('fPallets').value)||0,ref:$('fRef').value.trim(),createdAt:Date.now(),closedAt:null,boxes:[],nextBox:1,createdBy:me.uid,createdByName:me.name,updatedAt:Date.now()};
   setDoc(ref,s).catch(e=>toast('Eroare salvare: '+e.code));
   $('fPallets').value='';$('fRef').value='';$('fSenderOther').value='';
   sessions.unshift(Object.assign({id:ref.id},s));
   openSession(ref.id);speak('Sesiune pornită. Scanează primul produs.');
 };
 
-/* ================= SESSION (local-first + sync) ================= */
-let cur=null,dirty=false,saveT=null;
+/* ================= SESSION (multi-dispozitiv) =================
+   sessions/{id}            – meta + definițiile cutiilor (boxes[], nextBox); cutiile noi se alocă prin tranzacție
+   sessions/{id}/scans/{x}  – câte un document per scanare (append-only) → scanările de pe telefoane diferite nu se suprascriu
+*/
+let cur=null,curScans=[],unsubScans=null,qtyMap={};
+const sref=id=>doc(db,'sessions',id);
+const scansCol=id=>collection(db,'sessions',id,'scans');
+const sessionRefForStart=()=>doc(collection(db,'sessions'));
 function openSession(id){
-  audioUnlock();cur=sessions.find(s=>s.id===id);if(!cur)return;dirty=false;
+  audioUnlock();const s=sessions.find(x=>x.id===id);if(!s)return;
+  leaveSession();cur=s;curScans=[];qtyMap={};
   $('title').textContent=`${cur.sender} · ${cur.pallets} pal.`;$('btnDelete').style.display=me.role==='admin'?'':'none';
   show('scrScan');renderScan();setBig('',cur.closedAt?'Sesiune închisă':'Scanează un produs','–',cur.closedAt?'Redeschide din „Închide sesiunea”':'');
-  if(unsubCur)unsubCur();
-  unsubCur=onSnapshot(doc(db,'sessions',id),snap=>{
+  unsubCur=onSnapshot(sref(id),snap=>{
     if(!snap.exists()){toast('Sesiunea a fost ștearsă');leaveSession();show('scrHome');return;}
-    if(snap.metadata.hasPendingWrites||dirty)return;           // modificările mele sunt deja pe ecran
-    const d=Object.assign({id:snap.id},snap.data());if(cur&&cur.id===id){cur=d;renderScan();}
+    cur=Object.assign({id:snap.id},snap.data());if($('scrScan').classList.contains('active'))renderScan();
   });
+  unsubScans=onSnapshot(query(scansCol(id),orderBy('ts')),snap=>{
+    curScans=snap.docs.map(d=>Object.assign({id:d.id},d.data()));qtyMap={};curScans.forEach(x=>qtyMap[x.box]=(qtyMap[x.box]||0)+1);
+    if($('scrScan').classList.contains('active'))renderScan();
+  },e=>toast('Eroare scanări: '+e.code));
 }
-function scheduleSave(){dirty=true;clearTimeout(saveT);saveT=setTimeout(flushSave,700);}
-function flushSave(){
-  clearTimeout(saveT);if(!cur||!dirty)return;const c=cur;dirty=false;
-  const {id,...data}=c;data.updatedAt=Date.now();
-  setDoc(doc(db,'sessions',id),data).catch(e=>{toast('Eroare salvare: '+(e.code||e.message));dirty=true;});
-}
-window.addEventListener('pagehide',flushSave);document.addEventListener('visibilitychange',()=>{if(document.hidden)flushSave();});
-
+function leaveSession(){if(unsubCur){unsubCur();unsubCur=null;}if(unsubScans){unsubScans();unsubScans=null;}cur=null;curScans=[];qtyMap={};}
+const qtyOf=no=>qtyMap[no]||0;
 function normEan(raw){let e=(raw||'').replace(/[\s\u0000-\u001f]/g,'').trim();if(cfg.upc&&/^\d{12}$/.test(e))e='0'+e;return e;}
 function setBig(cls,lbl,num,sub){const b=$('bigbox');b.className='';if(cls)b.classList.add(cls);$('bbLbl').textContent=lbl;$('bbNum').textContent=num;$('bbSub').textContent=sub||'';}
-function processScan(raw){
+async function processScan(raw){
   const ean=normEan(raw);if(!cur)return;
   if(cur.closedAt){beep('bad');setBig('bad','Sesiune închisă','✕','Redeschide sesiunea pentru a scana');speak('Sesiunea este închisă');return;}
   if(!/^[0-9A-Za-z\-\.]{4,32}$/.test(ean)){beep('bad');vibe([80,40,80]);setBig('bad','Cod invalid','✕',ean);speak('Cod invalid');return;}
-  let box=cur.boxes.find(b=>b.ean===ean&&!b.full);let isNew=false;
-  if(!box){box={no:cur.nextBox++,ean,name:nameFor(ean),qty:0,full:false,lots:[],createdAt:Date.now()};cur.boxes.push(box);isNew=true;}
-  box.qty++;cur.scans.push({ts:Date.now(),ean,box:box.no,isNew,by:me.name});
-  scheduleSave();
-  sayBox(isNew?cfg.tplNew:cfg.tplSame,box.no);beep(isNew?'new':'same');vibe(isNew?[60,40,60]:40);
-  setBig(isNew?'new':'same',isNew?'Cutie nouă':'Pune în',String(box.no),ean+(box.name?' · '+box.name:'')+' · '+box.qty+' buc');
-  renderScan(box.no);
+  const sid=cur.id;
+  const box=(cur.boxes||[]).find(b=>b.ean===ean&&!b.full);
+  if(box){ // produs cunoscut (deschis de oricine din sesiune) → răspuns instant; scrierea merge în fundal, și offline
+    addDoc(scansCol(sid),{ts:Date.now(),ean,box:box.no,by:me.name,isNew:false}).catch(e=>toast('Eroare salvare: '+(e.code||e.message)));
+    sayBox(cfg.tplSame,box.no);beep('same');vibe(40);
+    setBig('same','Pune în',String(box.no),ean+(box.name?' · '+box.name:'')+' · '+(qtyOf(box.no)+1)+' buc');renderScan(box.no);return;
+  }
+  // produs nou → alocare atomică a numărului de cutie (două telefoane nu pot primi același număr / același EAN nu primește două cutii)
+  if(!navigator.onLine){beep('bad');vibe([80,40,80]);setBig('bad','Fără conexiune','✕','Cutia nouă se poate deschide doar online – reîncearcă');speak('Fără conexiune. Nu pot deschide cutie nouă');return;}
+  setBig('','Se alocă cutia…','…',ean);
+  try{
+    const r=await runTransaction(db,async tx=>{
+      const snap=await tx.get(sref(sid));const d=snap.data()||{};
+      const ex=(d.boxes||[]).find(b=>b.ean===ean&&!b.full);if(ex)return {no:ex.no,isNew:false,name:ex.name||''};
+      const no=d.nextBox||1;const nb={no,ean,name:nameFor(ean),full:false,lots:[],createdAt:Date.now(),by:me.name};
+      tx.update(sref(sid),{boxes:[...(d.boxes||[]),nb],nextBox:no+1,updatedAt:Date.now()});return {no,isNew:true,name:nb.name};
+    });
+    addDoc(scansCol(sid),{ts:Date.now(),ean,box:r.no,by:me.name,isNew:r.isNew}).catch(e=>toast('Eroare salvare: '+(e.code||e.message)));
+    sayBox(r.isNew?cfg.tplNew:cfg.tplSame,r.no);beep(r.isNew?'new':'same');vibe(r.isNew?[60,40,60]:40);
+    setBig(r.isNew?'new':'same',r.isNew?'Cutie nouă':'Pune în',String(r.no),ean+(r.name?' · '+r.name:'')+' · '+(qtyOf(r.no)+1)+' buc');renderScan(r.no);
+  }catch(e){beep('bad');vibe([80,40,80]);setBig('bad','Eroare','✕','Nu s-a putut aloca cutia – scanează din nou ('+(e.code||e.message)+')');speak('Eroare. Scanează din nou');}
 }
 function nameFor(ean){for(const s of sessions){const b=(s.boxes||[]).find(b=>b.ean===ean&&b.name);if(b)return b.name;}return '';}
-function lotSum(b){return (b.lots||[]).reduce((a,l)=>a+(parseInt(l.qty)||0),0);}
+const lotQty=l=>(parseInt(l.ok)||0)+(parseInt(l.nok)||0);
+function lotSum(b){return (b.lots||[]).reduce((a,l)=>a+lotQty(l),0);}
+function lotNok(b){return (b.lots||[]).reduce((a,l)=>a+(parseInt(l.nok)||0),0);}
+function lotState(b){const q=qtyOf(b.no),s=lotSum(b);if(!(b.lots||[]).length)return q>0?'none':'ok';return s===q?'ok':'bad';}
 function renderScan(hl){
-  if(!cur)return;const tb=$('boxRows');tb.innerHTML='';$('noBoxes').style.display=cur.boxes.length?'none':'';
-  [...cur.boxes].sort((a,b)=>b.no-a.no).forEach(b=>{
+  if(!cur)return;const tb=$('boxRows');tb.innerHTML='';const boxes=cur.boxes||[];$('noBoxes').style.display=boxes.length?'none':'';
+  [...boxes].sort((a,b)=>b.no-a.no).forEach(b=>{
+    const q=qtyOf(b.no),st=lotState(b);
     const tr=document.createElement('tr');if(b.full)tr.classList.add('full');if(b.no===hl)tr.classList.add('hl');
-    const lots=(b.lots&&b.lots.length)?'<br>🏷 '+b.lots.map(l=>l.qty+'×'+esc(l.batch)).join(', ')+(lotSum(b)!==b.qty?' <span class="tag">'+lotSum(b)+'/'+b.qty+'</span>':''):'';
-    tr.innerHTML=`<td class="n">${b.no}${b.full?'<span class="tag">plină</span>':''}</td><td><div class="ean">${esc(b.ean)}</div><div class="name">${esc(b.name||'')}${lots}</div></td><td class="q">${b.qty}</td><td style="width:34px;color:var(--muted)">›</td>`;
+    const lots=(b.lots&&b.lots.length)?'<br>🏷 '+b.lots.map(l=>esc(l.batch)+' ('+(parseInt(l.ok)||0)+' OK'+((parseInt(l.nok)||0)?' / <span style="color:#fca5a5">'+l.nok+' NOK</span>':'')+')').join(', ')+(st==='bad'?' <span class="tag">'+lotSum(b)+'/'+q+'</span>':''):(st==='none'?'<br><span class="tag">fără lot</span>':'');
+    tr.innerHTML=`<td class="n">${b.no}${b.full?'<span class="tag">plină</span>':''}</td><td><div class="ean">${esc(b.ean)}</div><div class="name">${esc(b.name||'')}${lots}</div></td><td class="q">${q}</td><td style="width:34px;color:var(--muted)">›</td>`;
     tr.onclick=()=>editBox(b);tb.appendChild(tr);
   });
-  $('stScans').textContent=cur.boxes.reduce((a,b)=>a+b.qty,0);$('stBoxes').textContent=cur.boxes.length;$('stEans').textContent=new Set(cur.boxes.map(b=>b.ean)).size;
+  $('stScans').textContent=curScans.length;$('stBoxes').textContent=boxes.length;$('stEans').textContent=new Set(boxes.map(b=>b.ean)).size;
+  $('stNok').textContent=boxes.reduce((a,b)=>a+lotNok(b),0);
+  const missing=boxes.filter(b=>lotState(b)!=='ok').length;$('btnNextLot').textContent=missing?`🏷 Următoarea cutie fără lot (${missing})`:'🏷 Toate cutiile au loturi complete';$('btnNextLot').disabled=!missing;
   $('btnClose').textContent=cur.closedAt?'↺ Redeschide sesiunea':'✔ Închide sesiunea';$('btnClose').className='btn '+(cur.closedAt?'sec':'warn');
 }
-function undo(){
-  if(!cur||!cur.scans.length){toast('Nimic de anulat');return;}
-  const last=cur.scans.pop();const box=cur.boxes.find(b=>b.no===last.box);
-  if(box){box.qty--;if(box.qty<=0&&last.isNew){cur.boxes=cur.boxes.filter(b=>b!==box);if(box.no===cur.nextBox-1)cur.nextBox--;}}
-  scheduleSave();renderScan();speak('Anulat');beep('bad');setBig('','Anulat','↶',`EAN ${last.ean} scos din cutia ${last.box}`);
+async function undo(){
+  if(!cur)return;const mine=curScans.filter(x=>x.by===me.name);const last=mine[mine.length-1];
+  if(!last){toast('Nimic de anulat (doar propriile scanări se pot anula)');return;}
+  const sid=cur.id;
+  deleteDoc(doc(db,'sessions',sid,'scans',last.id)).catch(e=>toast('Eroare: '+e.code));
+  const remaining=curScans.filter(x=>x.box===last.box&&x.id!==last.id).length;
+  if(last.isNew&&remaining===0&&navigator.onLine){
+    try{await runTransaction(db,async tx=>{const d=(await tx.get(sref(sid))).data();const bx=(d.boxes||[]).find(b=>b.no===last.box);if(!bx||(bx.lots||[]).length)return;
+      const boxes=d.boxes.filter(b=>b.no!==last.box);const upd={boxes,updatedAt:Date.now()};if(last.box===d.nextBox-1)upd.nextBox=d.nextBox-1;tx.update(sref(sid),upd);});}catch(e){}
+  }
+  speak('Anulat');beep('bad');setBig('','Anulat','↶',`EAN ${last.ean} scos din cutia ${last.box}`);
 }
 $('btnUndo').onclick=undo;
 $('btnSpeakTest').onclick=()=>{audioUnlock();sayBox(cfg.tplNew,7);beep('new');};
@@ -461,35 +493,57 @@ async function camLoop(){if(!stream)return;try{const codes=await detector.detect
 function stopCam(){if(camRAF){clearTimeout(camRAF);camRAF=null;}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}$('cam').style.display='none';}
 $('btnCamClose').onclick=stopCam;
 
-/* ================= BOX EDIT + LOTURI ================= */
+/* ================= BOX EDIT + LOTURI (batch, OK/NOK) ================= */
 let editing=null;
-function editBox(b){editing=b;b.lots=b.lots||[];$('mbTitle').textContent='Cutia '+b.no+' · '+b.qty+' buc';$('mbEan').textContent='EAN '+b.ean;$('mbName').value=b.name||'';$('mbFull').checked=!!b.full;$('lotQty').value='';$('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();$('mBox').classList.add('show');}
-$('mbCancel').onclick=()=>{$('mBox').classList.remove('show');focusScan();};
-$('mbSave').onclick=()=>{if(editing){if(/^\d{8}$/.test($('lotBatch').value.trim())&&parseInt($('lotQty').value)>0){if(!addLot())return;}
-  const sum=lotSum(editing);if(editing.lots.length&&sum!==editing.qty){const d=editing.qty-sum;toast(d>0?`Mai sunt ${d} bucăți fără lot – completează sau șterge loturile`:`Loturile depășesc cu ${-d} bucățile scanate – șterge/corectează`);beep('bad');speak(d>0?(d===1?'Mai e o bucată fără lot':`Mai sunt ${numRo(d)} bucăți fără lot`):'Loturile depășesc bucățile scanate');return;}
-  editing.name=$('mbName').value.trim();editing.full=$('mbFull').checked;
-  cur.boxes.filter(b=>b.ean===editing.ean&&!b.name).forEach(b=>b.name=editing.name);scheduleSave();renderScan();}$('mBox').classList.remove('show');focusScan();};
+function editBox(b){
+  const src=(cur.boxes||[]).find(x=>x.no===b.no)||b;
+  editing={no:src.no,ean:src.ean,name:src.name||'',full:!!src.full,lots:JSON.parse(JSON.stringify(src.lots||[])),qty:qtyOf(src.no)};
+  $('mbTitle').textContent='Cutia '+editing.no+' · '+editing.qty+' buc scanate';$('mbEan').textContent='EAN '+editing.ean;$('mbName').value=editing.name;$('mbFull').checked=editing.full;
+  $('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();$('mBox').classList.add('show');setTimeout(()=>$('lotOk').focus(),80);
+}
+$('mbCancel').onclick=()=>{$('mBox').classList.remove('show');editing=null;focusScan();};
+function nextBoxMissing(afterNo){const list=(cur.boxes||[]).filter(b=>lotState(b)!=='ok').sort((a,b)=>a.no-b.no);return list.find(b=>b.no>(afterNo||0))||list[0]||null;}
+$('btnNextLot').onclick=()=>{const b=nextBoxMissing(0);if(b)editBox(b);else toast('Toate cutiile au loturi complete');};
+async function saveBox(thenNext){
+  if(!editing)return;
+  if(/^\d{8}$/.test($('lotBatch').value.trim())&&(parseInt($('lotOk').value)||0)+(parseInt($('lotNok').value)||0)>0){if(!addLot())return;}
+  const sum=lotSum(editing);
+  if(editing.lots.length&&sum!==editing.qty){const d=editing.qty-sum;toast(d>0?`Mai sunt ${d} bucăți fără lot – completează sau șterge loturile`:`Loturile depășesc cu ${-d} bucățile scanate`);beep('bad');speak(d>0?(d===1?'Mai e o bucată fără lot':`Mai sunt ${numRo(d)} bucăți fără lot`):'Loturile depășesc bucățile scanate');return;}
+  const ed=editing,sid=cur.id;ed.name=$('mbName').value.trim();ed.full=$('mbFull').checked;
+  const apply=boxes=>boxes.map(b=>b.no===ed.no?Object.assign({},b,{name:ed.name,full:ed.full,lots:ed.lots,lotsBy:me.name,lotsAt:Date.now()}):(b.ean===ed.ean&&!b.name&&ed.name?Object.assign({},b,{name:ed.name}):b));
+  try{
+    if(navigator.onLine){await runTransaction(db,async tx=>{const d=(await tx.get(sref(sid))).data();tx.update(sref(sid),{boxes:apply(d.boxes||[]),updatedAt:Date.now()});});}
+    else{updateDoc(sref(sid),{boxes:apply(cur.boxes||[]),updatedAt:Date.now()});toast('Offline – se trimite când revine conexiunea');}
+  }catch(e){toast('Eroare salvare cutie: '+(e.code||e.message));return;}
+  $('mBox').classList.remove('show');editing=null;
+  if(thenNext){setTimeout(()=>{const n=nextBoxMissing(ed.no);if(n){editBox(n);speak('Cutia '+numRo(n.no));}else{toast('Toate cutiile au loturi complete');speak('Toate cutiile au loturi complete');focusScan();}},150);}
+  else focusScan();
+}
+$('mbSave').onclick=()=>saveBox(false);$('mbSaveNext').onclick=()=>saveBox(true);
 function renderLots(){
   const tb=$('lotRows');tb.innerHTML='';
   editing.lots.forEach((l,i)=>{const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="q" style="text-align:left;width:60px">${l.qty}</td><td class="ean" style="letter-spacing:2px">${esc(l.batch)}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
-    tr.querySelector('button').onclick=()=>{editing.lots.splice(i,1);scheduleSave();renderLots();};tb.appendChild(tr);});
-  const sum=lotSum(editing),w=$('lotWarn');
-  if(!editing.lots.length){w.textContent='Niciun lot declarat. Scrie bucățile, dictează batch-ul (🎤) sau tastează-l și apasă „Adaugă lot”.';w.style.color='';}
-  else if(sum===editing.qty){w.textContent=`✔ ${sum} din ${editing.qty} bucăți au lot declarat`;w.style.color='var(--ok)';}
-  else{w.textContent=`⚠ Loturi declarate: ${sum} buc · scanate în cutie: ${editing.qty} buc (diferență ${editing.qty-sum})`;w.style.color='var(--warn)';}
-  const rest=editing.qty-sum;$('lotQty').placeholder=rest>0?rest:'–';$('lotQty').max=rest>0?rest:0;$('lotQty').value=rest>0?rest:'';$('lotQty').disabled=rest<=0;$('lotBatch').disabled=rest<=0;$('lotMic').disabled=rest<=0;$('lotAdd').disabled=rest<=0;
+    tr.innerHTML=`<td class="ean" style="letter-spacing:2px;font-size:16px">${esc(l.batch)}</td><td class="q">${parseInt(l.ok)||0}</td><td class="q" style="color:${(parseInt(l.nok)||0)?'#fca5a5':'inherit'}">${parseInt(l.nok)||0}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
+    tr.querySelector('button').onclick=()=>{editing.lots.splice(i,1);renderLots();};tb.appendChild(tr);});
+  const sum=lotSum(editing),w=$('lotWarn'),rest=editing.qty-sum;
+  if(!editing.lots.length){w.textContent=`Niciun lot declarat pentru cele ${editing.qty} bucăți. Scrie OK/NOK, batch-ul (tastat sau 🎤) și apasă „Adaugă lot”.`;w.style.color='';}
+  else if(sum===editing.qty){w.textContent=`✔ ${sum} din ${editing.qty} bucăți au lot (${sum-lotNok(editing)} OK · ${lotNok(editing)} NOK)`;w.style.color='var(--ok)';}
+  else{w.textContent=`⚠ Loturi declarate: ${sum} buc · scanate: ${editing.qty} buc (mai sunt ${rest} fără lot)`;w.style.color='var(--warn)';}
+  $('lotOk').value=rest>0?rest:'';$('lotNok').value=rest>0?0:'';$('lotOk').max=$('lotNok').max=rest>0?rest:0;
+  ['lotOk','lotNok','lotBatch','lotMic','lotAdd'].forEach(i=>$(i).disabled=rest<=0);
 }
 function addLot(){
-  const q=parseInt($('lotQty').value)||0,b=$('lotBatch').value.replace(/\D/g,'');
-  if(q<=0){toast('Scrie numărul de bucăți');$('lotQty').focus();return false;}
+  const ok=parseInt($('lotOk').value)||0,nok=parseInt($('lotNok').value)||0,q=ok+nok,b=$('lotBatch').value.replace(/\D/g,'');
+  if(ok<0||nok<0||q<=0){toast('Scrie bucățile OK și/sau NOK');$('lotOk').focus();return false;}
   const rest=editing.qty-lotSum(editing);
   if(rest<=0){toast(`Toate cele ${editing.qty} bucăți din cutie au deja lot`);beep('bad');speak('Toate bucățile au deja lot');return false;}
-  if(q>rest){toast(`Prea multe: în cutie mai sunt doar ${rest} bucăți fără lot (scanate ${editing.qty})`);beep('bad');speak(`Prea multe. Mai e loc doar pentru ${bucRo(rest)}`);$('lotQty').value=rest;$('lotQty').focus();return false;}
+  if(q>rest){toast(`Prea multe: OK+NOK = ${q}, dar mai sunt doar ${rest} bucăți fără lot`);beep('bad');speak(`Prea multe. Mai e loc doar pentru ${bucRo(rest)}`);$('lotOk').value=Math.max(0,rest-nok);$('lotOk').focus();return false;}
   if(!/^\d{8}$/.test(b)){toast(b?`Batch-ul trebuie să aibă exact 8 cifre (acum: ${b.length})`:'Lipsește batch-ul');beep('bad');speak(b?`Batch incomplet, ${numRo(b.length)} cifre`:'Lipsește batch-ul');$('lotBatch').focus();return false;}
-  const ex=editing.lots.find(l=>l.batch===b);if(ex)ex.qty=(parseInt(ex.qty)||0)+q;else editing.lots.push({qty:q,batch:b});
-  scheduleSave();$('lotQty').value='';$('lotBatch').value='';$('lotHeard').textContent='';renderLots();
-  speak(`${bucRo(q)}, lot ${spellDigits(b)}. Adăugat.`);return true;
+  const ex=editing.lots.find(l=>l.batch===b);if(ex){ex.ok=(parseInt(ex.ok)||0)+ok;ex.nok=(parseInt(ex.nok)||0)+nok;}else editing.lots.push({batch:b,ok,nok});
+  $('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();
+  speak(`${bucRo(q)}${nok?`, ${nok===1?'una':numRoF(nok)} NOK`:''}, lot ${spellDigits(b)}. Adăugat.`);
+  const rest2=editing.qty-lotSum(editing);if(rest2===0)setTimeout(()=>speak('Cutie completă'),1500);
+  return true;
 }
 $('lotAdd').onclick=addLot;
 function updLotCount(){const b=$('lotBatch').value.replace(/\D/g,'');$('lotBatch').value=b;const c=$('lotCount');c.textContent=b?`${b.length}/8`:'';c.style.color=b.length===8?'var(--ok)':b?'var(--warn)':'';}
@@ -512,35 +566,40 @@ $('lotMic').onclick=()=>{
   const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';$('lotHeard').textContent='Ascult… dictează cifră cu cifră';
   let finalTxt='';
   rec.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=r[0].transcript;}
-    const heard=(finalTxt+' '+interim).trim();$('lotHeard').textContent='Am auzit: „'+heard+'”';$('lotBatch').value=wordsToCode(heard);};
+    const heard=(finalTxt+' '+interim).trim();$('lotHeard').textContent='Am auzit: „'+heard+'”';$('lotBatch').value=wordsToCode(heard);updLotCount();};
   rec.onerror=e=>{$('lotHeard').textContent='Eroare microfon: '+e.error+(e.error==='not-allowed'?' – permite accesul la microfon':'');};
   rec.onend=()=>{recActive=false;mic.style.background='';mic.textContent='🎤';const b=$('lotBatch').value.trim();updLotCount();if(b){$('lotHeard').textContent+=`  →  ${b} (${b.length}/8 cifre)`;speak('Lot '+spellDigits(b)+(b.length===8?'. Corect?':`. Doar ${numRo(b.length)} cifre, lipsesc ${numRo(8-b.length)}`));}};
   try{rec.start();}catch(e){recActive=false;mic.style.background='';mic.textContent='🎤';toast('Nu pot porni microfonul');}
 };
 
 /* ================= CLOSE / DELETE / EXPORT ================= */
-$('btnClose').onclick=()=>{
-  if(!cur)return;
-  if(cur.closedAt){cur.closedAt=null;scheduleSave();renderScan();toast('Sesiune redeschisă');setBig('','Scanează un produs','–','');return;}
+$('btnClose').onclick=async()=>{
+  if(!cur)return;const sid=cur.id;
+  if(cur.closedAt){updateDoc(sref(sid),{closedAt:null,updatedAt:Date.now()});toast('Sesiune redeschisă');setBig('','Scanează un produs','–','');return;}
   const btn=$('btnClose');
-  const bad=cur.boxes.filter(b=>(b.lots||[]).length&&lotSum(b)!==b.qty);
-  if(bad.length&&!btn.dataset.arm){toast('Cutiile '+bad.map(b=>b.no).join(', ')+' au loturi care nu bat cu bucățile scanate');beep('bad');}
-  if(btn.dataset.arm){cur.closedAt=Date.now();cur.closedByName=me.name;delete btn.dataset.arm;scheduleSave();flushSave();renderScan();speak('Sesiune închisă');toast('Sesiune închisă');setBig('','Sesiune închisă','✔',`${cur.boxes.length} cutii · ${cur.boxes.reduce((a,b)=>a+b.qty,0)} buc`);return;}
+  const bad=(cur.boxes||[]).filter(b=>lotState(b)!=='ok');
+  if(bad.length&&!btn.dataset.arm){toast('Atenție: cutiile '+bad.map(b=>b.no).join(', ')+' nu au loturi complete');beep('bad');}
+  if(btn.dataset.arm){delete btn.dataset.arm;
+    const totals={pieces:curScans.length,boxes:(cur.boxes||[]).length,nok:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0)};
+    updateDoc(sref(sid),{closedAt:Date.now(),closedByName:me.name,totals,updatedAt:Date.now()}).catch(e=>toast('Eroare: '+e.code));
+    speak('Sesiune închisă');toast('Sesiune închisă');setBig('','Sesiune închisă','✔',`${totals.boxes} cutii · ${totals.pieces} buc · ${totals.nok} NOK`);return;}
   btn.dataset.arm='1';btn.textContent='Apasă din nou pentru confirmare';setTimeout(()=>{delete btn.dataset.arm;renderScan();},3000);
 };
 $('btnDelete').onclick=async()=>{if(!cur||me.role!=='admin')return;if(!confirmTwice($('btnDelete'),'🗑 Șterge sesiunea','Apasă din nou pentru a ȘTERGE definitiv'))return;
-  const id=cur.id;dirty=false;if(unsubCur){unsubCur();unsubCur=null;}cur=null;try{await deleteDoc(doc(db,'sessions',id));toast('Sesiune ștearsă');}catch(e){toast('Eroare: '+e.code);}show('scrHome');};
+  const sid=cur.id,ids=curScans.map(x=>x.id);leaveSession();
+  try{for(let i=0;i<ids.length;i+=400){const wb=writeBatch(db);ids.slice(i,i+400).forEach(x=>wb.delete(doc(db,'sessions',sid,'scans',x)));await wb.commit();}
+    await deleteDoc(sref(sid));toast('Sesiune ștearsă');}catch(e){toast('Eroare: '+e.code);}show('scrHome');};
 function csvLine(a){return a.map(v=>{v=String(v??'');return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(';');}
 $('btnExport').onclick=()=>{
   if(!cur)return;
-  const rows=[csvLine(['Expeditor','Data sesiune','Nr paleti','Referinta','Cutia','EAN','Denumire','Bucati','Cutie plina','Loturi'])];
-  const boxes=[...cur.boxes].sort((a,b)=>a.no-b.no);
-  boxes.forEach(b=>rows.push(csvLine([cur.sender,fmtDate(cur.createdAt),cur.pallets,cur.ref,b.no,b.ean,b.name,b.qty,b.full?'da':'nu',(b.lots||[]).map(l=>l.qty+'x'+l.batch).join(' | ')])));
-  rows.push('');rows.push(csvLine(['Total cutii',cur.boxes.length,'Total bucati',cur.boxes.reduce((a,b)=>a+b.qty,0),'Operator',cur.createdByName||'']));
-  rows.push('');rows.push(csvLine(['Loturi pe cutii']));rows.push(csvLine(['Cutia','EAN','Denumire','Batch','Bucati']));
-  boxes.forEach(b=>(b.lots||[]).forEach(l=>rows.push(csvLine([b.no,b.ean,b.name,l.batch,l.qty]))));
+  const rows=[csvLine(['Expeditor','Data sesiune','Nr paleti','Referinta','Cutia','EAN','Denumire','Bucati scanate','Bucati OK','Bucati NOK','Cutie plina','Loturi'])];
+  const boxes=[...(cur.boxes||[])].sort((a,b)=>a.no-b.no);
+  boxes.forEach(b=>rows.push(csvLine([cur.sender,fmtDate(cur.createdAt),cur.pallets,cur.ref,b.no,b.ean,b.name,qtyOf(b.no),lotSum(b)-lotNok(b),lotNok(b),b.full?'da':'nu',(b.lots||[]).map(l=>l.batch+' ('+(l.ok||0)+' OK/'+(l.nok||0)+' NOK)').join(' | ')])));
+  rows.push('');rows.push(csvLine(['Total cutii',boxes.length,'Total bucati',curScans.length,'Total NOK',boxes.reduce((a,b)=>a+lotNok(b),0),'Deschisa de',cur.createdByName||'']));
+  rows.push('');rows.push(csvLine(['Loturi pe cutii']));rows.push(csvLine(['Cutia','EAN','Denumire','Batch','OK','NOK','Total']));
+  boxes.forEach(b=>(b.lots||[]).forEach(l=>rows.push(csvLine([b.no,b.ean,b.name,l.batch,l.ok||0,l.nok||0,lotQty(l)]))));
   rows.push('');rows.push(csvLine(['Jurnal scanari']));rows.push(csvLine(['Ora','EAN','Cutia','User']));
-  cur.scans.forEach(s=>rows.push(csvLine([new Date(s.ts).toLocaleTimeString('ro-RO'),s.ean,s.box,s.by||''])));
+  curScans.forEach(s=>rows.push(csvLine([new Date(s.ts).toLocaleTimeString('ro-RO'),s.ean,s.box,s.by||''])));
   const blob=new Blob(['﻿'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`Retur_${cur.sender.replace(/[^\w]+/g,'_')}_${new Date(cur.createdAt).toISOString().slice(0,16).replace(/[:T]/g,'-')}.csv`;
