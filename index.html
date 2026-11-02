@@ -184,7 +184,7 @@
   <table style="margin-bottom:8px"><tbody id="lotRows"></tbody></table>
   <div class="row" style="align-items:flex-end">
     <div style="flex:0 0 92px"><label>Bucăți</label><input id="lotQty" type="number" inputmode="numeric" min="1" placeholder="10"></div>
-    <div><label>Batch</label><input id="lotBatch" placeholder="tastează sau 🎤" autocomplete="off" style="font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:2px"></div>
+    <div><label>Batch (exact 8 cifre) <span id="lotCount" class="muted"></span></label><input id="lotBatch" placeholder="8 cifre" inputmode="numeric" maxlength="8" autocomplete="off" style="font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:3px;font-size:22px"></div>
     <button class="btn sec small" id="lotMic" style="flex:0 0 58px;font-size:22px;padding:8px 0" title="Dictează batch">🎤</button>
   </div>
   <div id="lotHeard" class="muted" style="min-height:18px;margin-top:4px"></div>
@@ -462,9 +462,9 @@ $('btnCamClose').onclick=stopCam;
 
 /* ================= BOX EDIT + LOTURI ================= */
 let editing=null;
-function editBox(b){editing=b;b.lots=b.lots||[];$('mbTitle').textContent='Cutia '+b.no+' · '+b.qty+' buc';$('mbEan').textContent='EAN '+b.ean;$('mbName').value=b.name||'';$('mbFull').checked=!!b.full;$('lotQty').value='';$('lotBatch').value='';$('lotHeard').textContent='';renderLots();$('mBox').classList.add('show');}
+function editBox(b){editing=b;b.lots=b.lots||[];$('mbTitle').textContent='Cutia '+b.no+' · '+b.qty+' buc';$('mbEan').textContent='EAN '+b.ean;$('mbName').value=b.name||'';$('mbFull').checked=!!b.full;$('lotQty').value='';$('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();$('mBox').classList.add('show');}
 $('mbCancel').onclick=()=>{$('mBox').classList.remove('show');focusScan();};
-$('mbSave').onclick=()=>{if(editing){if($('lotBatch').value.trim()&&parseInt($('lotQty').value)>0)addLot();editing.name=$('mbName').value.trim();editing.full=$('mbFull').checked;
+$('mbSave').onclick=()=>{if(editing){if(/^\d{8}$/.test($('lotBatch').value.trim())&&parseInt($('lotQty').value)>0)addLot();editing.name=$('mbName').value.trim();editing.full=$('mbFull').checked;
   cur.boxes.filter(b=>b.ean===editing.ean&&!b.name).forEach(b=>b.name=editing.name);scheduleSave();renderScan();}$('mBox').classList.remove('show');focusScan();};
 function renderLots(){
   const tb=$('lotRows');tb.innerHTML='';
@@ -478,21 +478,24 @@ function renderLots(){
   const rest=editing.qty-sum;$('lotQty').placeholder=rest>0?rest:'buc';
 }
 function addLot(){
-  const q=parseInt($('lotQty').value)||0,b=$('lotBatch').value.trim().toUpperCase();
+  const q=parseInt($('lotQty').value)||0,b=$('lotBatch').value.replace(/\D/g,'');
   if(q<=0){toast('Scrie numărul de bucăți');$('lotQty').focus();return false;}
-  if(!b){toast('Lipsește batch-ul');$('lotBatch').focus();return false;}
+  if(!/^\d{8}$/.test(b)){toast(b?`Batch-ul trebuie să aibă exact 8 cifre (acum: ${b.length})`:'Lipsește batch-ul');beep('bad');speak(b?`Batch incomplet, ${numRo(b.length)} cifre`:'Lipsește batch-ul');$('lotBatch').focus();return false;}
   const ex=editing.lots.find(l=>l.batch===b);if(ex)ex.qty=(parseInt(ex.qty)||0)+q;else editing.lots.push({qty:q,batch:b});
   scheduleSave();$('lotQty').value='';$('lotBatch').value='';$('lotHeard').textContent='';renderLots();
   speak(`${numRo(q)} bucăți, lot ${spellDigits(b)}. Adăugat.`);return true;
 }
 $('lotAdd').onclick=addLot;
+function updLotCount(){const b=$('lotBatch').value.replace(/\D/g,'');$('lotBatch').value=b;const c=$('lotCount');c.textContent=b?`${b.length}/8`:'';c.style.color=b.length===8?'var(--ok)':b?'var(--warn)':'';}
+$('lotBatch').addEventListener('input',updLotCount);
+$('lotBatch').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addLot();}});
 $('lotRead').onclick=()=>{const b=$('lotBatch').value.trim();if(!b){toast('Nu e niciun batch de citit');return;}speak('Lot '+spellDigits(b));};
-function spellDigits(str){return str.toUpperCase().split('').map(c=>/\d/.test(c)?numRo(c):c==='-'?'liniuță':c==='/'?'bară':c).join(', ');}
+function spellDigits(str){return String(str).replace(/\D/g,'').split('').map(c=>numRo(c)).join(', ');}
 const WORD2DIG={zero:'0',unu:'1',una:'1',un:'1',o:'1',doi:'2','două':'2',doua:'2',trei:'3',patru:'4',cinci:'5','șase':'6',sase:'6','șapte':'7',sapte:'7',opt:'8','nouă':'9',noua:'9',
   zece:'10',unsprezece:'11',doisprezece:'12',treisprezece:'13',paisprezece:'14',cincisprezece:'15','șaisprezece':'16',saisprezece:'16','șaptesprezece':'17',saptesprezece:'17',optsprezece:'18','nouăsprezece':'19',nouasprezece:'19',
   'douăzeci':'20',douazeci:'20',treizeci:'30',patruzeci:'40',cincizeci:'50','șaizeci':'60',saizeci:'60','șaptezeci':'70',saptezeci:'70',optzeci:'80','nouăzeci':'90',nouazeci:'90'};
 function wordsToCode(t){let out='';t.toLowerCase().replace(/[.,;:!?]/g,' ').split(/\s+/).filter(Boolean).forEach(tok=>{
-  if(/^\d+$/.test(tok))out+=tok;else if(WORD2DIG[tok]!==undefined)out+=WORD2DIG[tok];else if(/^[a-z]$/.test(tok))out+=tok.toUpperCase();else if(/^[a-z]\d+$/i.test(tok)||/^\d+[a-z]$/i.test(tok))out+=tok.toUpperCase();});return out;}
+  if(/^\d+$/.test(tok))out+=tok;else if(WORD2DIG[tok]!==undefined)out+=WORD2DIG[tok];});return out.replace(/\D/g,'').slice(0,8);}
 let rec=null,recActive=false;
 $('lotMic').onclick=()=>{
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -505,7 +508,7 @@ $('lotMic').onclick=()=>{
   rec.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=r[0].transcript;}
     const heard=(finalTxt+' '+interim).trim();$('lotHeard').textContent='Am auzit: „'+heard+'”';$('lotBatch').value=wordsToCode(heard);};
   rec.onerror=e=>{$('lotHeard').textContent='Eroare microfon: '+e.error+(e.error==='not-allowed'?' – permite accesul la microfon':'');};
-  rec.onend=()=>{recActive=false;mic.style.background='';mic.textContent='🎤';const b=$('lotBatch').value.trim();if(b){$('lotHeard').textContent+=`  →  ${b} (${b.length} caractere)`;speak('Lot '+spellDigits(b)+'. Corect?');}};
+  rec.onend=()=>{recActive=false;mic.style.background='';mic.textContent='🎤';const b=$('lotBatch').value.trim();updLotCount();if(b){$('lotHeard').textContent+=`  →  ${b} (${b.length}/8 cifre)`;speak('Lot '+spellDigits(b)+(b.length===8?'. Corect?':`. Doar ${numRo(b.length)} cifre, lipsesc ${numRo(8-b.length)}`));}};
   try{rec.start();}catch(e){recActive=false;mic.style.background='';mic.textContent='🎤';toast('Nu pot porni microfonul');}
 };
 
