@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<title>Retur Marfă – Sortare by Voice</title>
+<style>
+  :root{--bg:#0f172a;--panel:#1e293b;--panel2:#273449;--line:#334155;--txt:#f1f5f9;--muted:#94a3b8;--acc:#38bdf8;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+  body{min-height:100vh;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:16px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .iconbtn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px 11px;font-size:15px;cursor:pointer}
+  main{flex:1;padding:14px;max-width:760px;width:100%;margin:0 auto}
+  .screen{display:none}.screen.active{display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+  input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:12px;font-size:17px}
+  input:focus,select:focus{outline:2px solid var(--acc);border-color:var(--acc)}
+  .btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;font-size:17px;font-weight:600;cursor:pointer;background:var(--acc);color:#082f49;margin-top:12px}
+  .btn.sec{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
+  .btn.warn{background:var(--warn);color:#422006}.btn.err{background:var(--err);color:#fff}
+  .btn.small{padding:9px 12px;font-size:14px;width:auto;display:inline-block;margin:0}
+  .btn:disabled{opacity:.5}
+  .row{display:flex;gap:10px}.row>*{flex:1}
+  .muted{color:var(--muted);font-size:13px}
+  .sess{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--line);cursor:pointer}
+  .sess:last-child{border-bottom:0}.sess .t{flex:1}.sess .t b{font-size:16px}
+  .badge{font-size:12px;padding:3px 8px;border-radius:99px;background:var(--panel2);color:var(--muted)}
+  .badge.open{background:#064e3b;color:#86efac}.badge.admin{background:#312e81;color:#c7d2fe}.badge.off{background:#7f1d1d;color:#fecaca}
+  #bigbox{border-radius:18px;padding:18px 14px;text-align:center;margin-bottom:12px;background:var(--panel);border:2px solid var(--line);transition:background .15s,border-color .15s;min-height:190px}
+  #bigbox .lbl{font-size:15px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+  #bigbox .num{font-size:118px;font-weight:800;line-height:1.05;margin:4px 0}
+  #bigbox .sub{font-size:16px;color:var(--muted);min-height:22px;word-break:break-all}
+  #bigbox.new{background:#14532d;border-color:var(--ok)}#bigbox.same{background:#0c4a6e;border-color:var(--acc)}#bigbox.bad{background:#7f1d1d;border-color:var(--err)}
+  #scanInput{font-size:20px;text-align:center;letter-spacing:1px}
+  .stats{display:flex;gap:8px;margin:10px 0}
+  .stat{flex:1;background:var(--panel2);border-radius:10px;padding:8px;text-align:center}.stat b{display:block;font-size:22px}.stat span{font-size:12px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:15px}
+  th,td{padding:9px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  th{color:var(--muted);font-weight:500;font-size:12px;text-transform:uppercase}
+  td.n{font-weight:800;font-size:20px;width:52px}td.q{text-align:right;font-weight:700;font-size:18px;width:52px}
+  tr.full td{opacity:.5}tr.hl td{background:#1d3a53}
+  .tag{font-size:11px;padding:2px 6px;border-radius:6px;background:var(--warn);color:#422006;margin-left:6px}
+  .ean{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}.name{font-size:13px;color:var(--muted)}
+  #cam{display:none;position:relative;border-radius:14px;overflow:hidden;margin-bottom:12px;background:#000}
+  #cam video{width:100%;display:block;max-height:260px;object-fit:cover}
+  #cam .closecam{position:absolute;top:8px;right:8px}#cam .line{position:absolute;left:10%;right:10%;top:50%;height:2px;background:rgba(239,68,68,.8)}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center;z-index:20}
+  .modal.show{display:flex}
+  .modal .box{background:var(--panel);width:100%;max-width:760px;border-radius:18px 18px 0 0;padding:16px;max-height:92vh;overflow:auto}
+  .modal h3{margin:0 0 6px}
+  .switch{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)}.switch input{width:auto;transform:scale(1.4)}
+  #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#334155;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;display:none;z-index:30;max-width:90vw;text-align:center}
+  #netbar{display:none;background:#78350f;color:#fde68a;text-align:center;font-size:13px;padding:5px}
+  footer{text-align:center;color:var(--muted);font-size:12px;padding:10px}
+  .login{max-width:380px;margin:40px auto}
+  .login h2{text-align:center;margin:0 0 6px}
+  .err{color:#fca5a5;font-size:14px;min-height:18px;margin-top:8px}
+  .setup{background:#7f1d1d;color:#fecaca;padding:14px;border-radius:12px;font-size:14px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <button class="iconbtn" id="btnBack" style="display:none">‹ Înapoi</button>
+  <h1 id="title">Retur Marfă</h1>
+  <button class="iconbtn" id="btnUsers" style="display:none" title="Utilizatori">👥</button>
+  <button class="iconbtn" id="btnSettings" style="display:none" title="Setări">⚙</button>
+  <button class="iconbtn" id="btnLogout" style="display:none" title="Ieșire">⎋</button>
+</header>
+<div id="netbar">⚠ Offline – scanările se salvează local și se trimit automat când revine conexiunea</div>
+
+<main>
+  <!-- ===== LOGIN ===== -->
+  <section class="screen active" id="scrLogin">
+    <div class="card login">
+      <h2>Retur Marfă</h2>
+      <p class="muted" style="text-align:center;margin:0 0 10px">Sortare retururi by voice</p>
+      <div id="setupWarn" class="setup" style="display:none"></div>
+      <label>Utilizator</label><input id="lName" placeholder="ex. admin" autocomplete="username" autocapitalize="none">
+      <label>PIN</label><input id="lPin" type="password" inputmode="numeric" placeholder="4–6 cifre" autocomplete="current-password">
+      <button class="btn" id="btnLogin">Intră</button>
+      <div class="err" id="lErr"></div>
+    </div>
+  </section>
+
+  <!-- ===== HOME ===== -->
+  <section class="screen" id="scrHome">
+    <div class="card">
+      <h2 style="margin:0 0 4px;font-size:18px">Sesiune nouă de retur</h2>
+      <label>Expeditor</label><select id="fSender"></select>
+      <input id="fSenderOther" placeholder="Nume expeditor" style="display:none;margin-top:8px">
+      <div class="row">
+        <div><label>Nr. paleți</label><input id="fPallets" type="number" inputmode="numeric" min="0" placeholder="ex. 2"></div>
+        <div><label>Referință / aviz (opțional)</label><input id="fRef" placeholder="nr. aviz, camion…"></div>
+      </div>
+      <button class="btn" id="btnStart">▶ Pornește sesiunea</button>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:12px 14px 6px;display:flex;align-items:center"><b style="flex:1">Sesiuni</b><span class="muted" id="sessCount"></span></div>
+      <div id="sessList"><p class="muted" style="padding:14px;text-align:center">Se încarcă…</p></div>
+    </div>
+  </section>
+
+  <!-- ===== SCAN ===== -->
+  <section class="screen" id="scrScan">
+    <div id="cam"><video id="video" playsinline muted></video><div class="line"></div><button class="iconbtn closecam" id="btnCamClose">✕</button></div>
+    <div id="bigbox"><div class="lbl" id="bbLbl">Scanează un produs</div><div class="num" id="bbNum">–</div><div class="sub" id="bbSub"></div></div>
+    <div class="muted" id="voiceStatus" style="text-align:center;margin:-6px 0 8px">🔊 voce: apasă „Test voce” pentru verificare</div>
+    <input id="scanInput" placeholder="Scanează sau tastează EAN + Enter" autocomplete="off" inputmode="numeric">
+    <div class="row" style="margin-top:10px">
+      <button class="btn sec small" id="btnCam" style="flex:1">📷 Cameră</button>
+      <button class="btn sec small" id="btnUndo" style="flex:1">↶ Anulează ultima</button>
+      <button class="btn sec small" id="btnSpeakTest" style="flex:1">🔊 Test voce</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="stScans">0</b><span>bucăți scanate</span></div>
+      <div class="stat"><b id="stBoxes">0</b><span>cutii</span></div>
+      <div class="stat"><b id="stEans">0</b><span>produse (EAN)</span></div>
+    </div>
+    <div class="card" style="padding:6px 8px">
+      <table><thead><tr><th>Cutia</th><th>Produs</th><th style="text-align:right">Buc</th><th></th></tr></thead><tbody id="boxRows"></tbody></table>
+      <p class="muted" id="noBoxes" style="text-align:center;padding:10px">Nicio cutie încă. Prima scanare deschide cutia 1.</p>
+    </div>
+    <div class="row">
+      <button class="btn sec" id="btnExport">⬇ Export CSV</button>
+      <button class="btn warn" id="btnClose">✔ Închide sesiunea</button>
+    </div>
+    <button class="btn err" id="btnDelete" style="display:none">🗑 Șterge sesiunea</button>
+    <p class="muted" style="text-align:center">Apasă pe o cutie pentru denumire, loturi (batch) sau „plină”. O cutie plină nu mai primește bucăți — următoarea scanare a aceluiași EAN deschide o cutie nouă.</p>
+  </section>
+
+  <!-- ===== USERS (admin) ===== -->
+  <section class="screen" id="scrUsers">
+    <div class="card">
+      <h2 style="margin:0 0 4px;font-size:18px">Utilizator nou</h2>
+      <div class="row">
+        <div><label>Nume (login)</label><input id="uName" placeholder="ex. ion" autocapitalize="none"></div>
+        <div style="flex:0 0 110px"><label>PIN</label><input id="uPin" inputmode="numeric" placeholder="4–6 cifre"></div>
+      </div>
+      <label>Rol</label><select id="uRole"><option value="operator">Operator</option><option value="admin">Admin</option></select>
+      <button class="btn" id="btnAddUser">＋ Creează utilizator</button>
+      <div class="err" id="uErr"></div>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:12px 14px 6px"><b>Utilizatori</b></div>
+      <div id="userList"></div>
+    </div>
+    <p class="muted">Un utilizator dezactivat nu mai poate intra. PIN-ul poate fi schimbat doar de utilizatorul însuși (din ⚙); dacă l-a uitat, dezactivează-i contul și creează-i unul nou cu alt nume.</p>
+  </section>
+</main>
+<footer>Retur Marfă · sortare by voice · <span id="whoami"></span></footer>
+
+<!-- Settings modal -->
+<div class="modal" id="mSettings"><div class="box">
+  <h3>Setări</h3>
+  <div class="switch"><span>Ghidare vocală</span><input type="checkbox" id="sVoice"></div>
+  <div class="switch"><span>Semnal sonor (beep)</span><input type="checkbox" id="sBeep"></div>
+  <div class="switch"><span>Vibrație la scanare</span><input type="checkbox" id="sVibe"></div>
+  <div class="switch"><span>UPC-A (12 cifre) → EAN-13 (cu 0 în față)</span><input type="checkbox" id="sUpc"></div>
+  <label>Voce</label><select id="sVoiceName"></select>
+  <label>Viteză vorbire: <span id="sRateV"></span></label><input type="range" id="sRate" min="0.7" max="1.6" step="0.1">
+  <label>Text pentru produs deja sortat ({n} = numărul cutiei, rostit în cuvinte)</label><input id="sTplSame">
+  <label>Text pentru cutie nouă ({n} = numărul cutiei, rostit în cuvinte)</label><input id="sTplNew">
+  <div id="sSendersWrap"><label>Listă expeditori (unul pe linie) – comună pentru toți</label><textarea id="sSenders" rows="5"></textarea></div>
+  <button class="btn" id="btnSaveSettings">Salvează</button>
+  <h3 style="margin-top:18px">Schimbă PIN-ul meu</h3>
+  <div class="row"><div><label>PIN actual</label><input id="pOld" type="password" inputmode="numeric"></div><div><label>PIN nou (4–6 cifre)</label><input id="pNew" type="password" inputmode="numeric"></div></div>
+  <button class="btn sec" id="btnPin">Schimbă PIN</button>
+  <div class="err" id="pErr"></div>
+  <button class="btn sec" id="btnCloseSettings">Închide</button>
+</div></div>
+
+<!-- Box modal -->
+<div class="modal" id="mBox"><div class="box">
+  <h3 id="mbTitle">Cutia</h3>
+  <div class="ean" id="mbEan"></div>
+  <label>Denumire produs (opțional)</label><input id="mbName" placeholder="ex. Napolitane 100g">
+  <div class="switch"><span>Cutie plină (nu mai primește bucăți)</span><input type="checkbox" id="mbFull"></div>
+  <h3 style="margin-top:14px">Loturi (batch)</h3>
+  <div id="lotWarn" class="muted" style="margin-bottom:6px"></div>
+  <table style="margin-bottom:8px"><tbody id="lotRows"></tbody></table>
+  <div class="row" style="align-items:flex-end">
+    <div style="flex:0 0 92px"><label>Bucăți</label><input id="lotQty" type="number" inputmode="numeric" min="1" placeholder="10"></div>
+    <div><label>Batch</label><input id="lotBatch" placeholder="tastează sau 🎤" autocomplete="off" style="font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:2px"></div>
+    <button class="btn sec small" id="lotMic" style="flex:0 0 58px;font-size:22px;padding:8px 0" title="Dictează batch">🎤</button>
+  </div>
+  <div id="lotHeard" class="muted" style="min-height:18px;margin-top:4px"></div>
+  <div class="row"><button class="btn sec" id="lotRead">🔊 Citește</button><button class="btn" id="lotAdd">＋ Adaugă lot</button></div>
+  <button class="btn" id="mbSave" style="margin-top:16px">Salvează cutia</button>
+  <button class="btn sec" id="mbCancel">Renunță</button>
+</div></div>
+
+<div id="toast"></div>
+
+<script type="module">
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
+         updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { initializeFirestore, persistentLocalCache, persistentSingleTabManager, doc, collection, setDoc, getDoc, updateDoc, deleteDoc,
+         onSnapshot, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+/* ================= CONFIG FIREBASE – COMPLETEAZĂ AICI ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyBawbWIJMcZDyyvRF9ISHe3XgWBXN8y-s4",
+  authDomain: "retur-voice.firebaseapp.com",
+  projectId: "retur-voice",
+  storageBucket: "retur-voice.firebasestorage.app",
+  messagingSenderId: "804119792420",
+  appId: "1:804119792420:web:a61cd43cc1eba2a101c1b1"
+};
+const EMAIL_DOMAIN='retur.app';      // nume → nume@retur.app (cont intern, nu primește email)
+const ADMIN_LOGIN='admin', ADMIN_FIRST_PIN='1234';
+/* ===================================================================== */
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDate=ts=>new Date(ts).toLocaleString('ro-RO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',2600)}
+const slug=n=>n.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'');
+const emailOf=n=>slug(n)+'@'+EMAIL_DOMAIN;
+const pwdOf=pin=>'pin'+pin;   // Firebase cere min. 6 caractere
+
+if(firebaseConfig.apiKey.startsWith('PASTE')){
+  $('setupWarn').style.display='block';
+  $('setupWarn').innerHTML='<b>Configurare incompletă.</b> Deschide index.html și completează secțiunea <code>firebaseConfig</code> cu datele proiectului tău Firebase (vezi SETUP.md).';
+  $('btnLogin').disabled=true;
+}
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app);
+let db;
+try{db=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentSingleTabManager()})});}
+catch(e){db=initializeFirestore(app,{});}
+
+/* ================= LOCAL CFG (voce etc.) ================= */
+const LS_CFG='retur_cfg_v2';
+const DEF_SENDERS=['Mega Image','Kaufland','Penny','Profi','Carrefour','Auchan','Lidl','Metro','Selgros','Cora'];
+let cfg=Object.assign({voice:true,beep:true,vibe:true,upc:true,voiceName:'',rate:1.1,tplSame:'{n}',tplNew:'Cutie nouă {n}'},JSON.parse(localStorage.getItem(LS_CFG)||'{}'));
+const saveCfg=()=>localStorage.setItem(LS_CFG,JSON.stringify(cfg));
+let senders=DEF_SENDERS;
+
+/* ================= AUTH ================= */
+let me=null; // {uid,name,role,active}
+let unsubSessions=null,unsubCur=null,unsubUsers=null,unsubCfg=null,pendingBootstrap=null;
+$('lName').value=localStorage.getItem('retur_last_user')||'';
+$('lPin').addEventListener('keydown',e=>{if(e.key==='Enter')$('btnLogin').click();});
+$('btnLogin').onclick=async()=>{
+  const name=$('lName').value.trim(),pin=$('lPin').value.trim();$('lErr').textContent='';
+  if(!name||!/^\d{4,6}$/.test(pin)){$('lErr').textContent='Scrie numele și un PIN de 4–6 cifre.';return;}
+  $('btnLogin').disabled=true;
+  try{
+    try{await signInWithEmailAndPassword(auth,emailOf(name),pwdOf(pin));}
+    catch(e){
+      // bootstrap: primul admin se creează singur la prima autentificare cu admin / 1234
+      if(slug(name)===ADMIN_LOGIN&&pin===ADMIN_FIRST_PIN&&/user-not-found|invalid-credential|invalid-login-credentials/.test(e.code)){
+        let done;pendingBootstrap=new Promise(r=>done=r);
+        try{
+          const cred=await createUserWithEmailAndPassword(auth,emailOf(name),pwdOf(pin));
+          await setDoc(doc(db,'users',cred.user.uid),{name:ADMIN_LOGIN,role:'admin',active:true,createdAt:Date.now()});
+          toast('Cont admin creat. Schimbă PIN-ul 1234 din ⚙ Setări!');
+        }finally{done();pendingBootstrap=null;}
+      } else throw e;
+    }
+    localStorage.setItem('retur_last_user',name);$('lPin').value='';
+  }catch(e){
+    $('lErr').textContent=/invalid-credential|wrong-password|user-not-found|invalid-login/.test(e.code)?'Nume sau PIN greșit.':/network/.test(e.code)?'Fără conexiune la internet.':/too-many/.test(e.code)?'Prea multe încercări – așteaptă puțin.':'Eroare: '+e.code;
+  }
+  $('btnLogin').disabled=false;
+};
+onAuthStateChanged(auth,async user=>{
+  if(!user){me=null;teardown();show('scrLogin');return;}
+  if(pendingBootstrap)await pendingBootstrap;   // așteaptă scrierea documentului admin la prima autentificare
+  try{
+    const snap=await getDoc(doc(db,'users',user.uid));
+    if(!snap.exists()||snap.data().active!==true){$('lErr').textContent=snap.exists()?'Contul este dezactivat.':'Contul nu este autorizat de admin.';await signOut(auth);return;}
+    me=Object.assign({uid:user.uid},snap.data());
+    $('whoami').textContent=me.name+' ('+me.role+')';
+    $('btnUsers').style.display=me.role==='admin'?'':'none';
+    $('btnSettings').style.display='';$('btnLogout').style.display='';
+    $('sSendersWrap').style.display=me.role==='admin'?'':'none';
+    subscribe();show('scrHome');
+  }catch(e){$('lErr').textContent='Eroare la citirea contului: '+(e.code||e.message);await signOut(auth);}
+});
+$('btnLogout').onclick=async()=>{if(confirmTwice($('btnLogout'),'⎋','Sigur?')){await signOut(auth);}};
+function teardown(){[unsubSessions,unsubCur,unsubUsers,unsubCfg].forEach(u=>u&&u());unsubSessions=unsubCur=unsubUsers=unsubCfg=null;cur=null;
+  ['btnUsers','btnSettings','btnLogout'].forEach(i=>$(i).style.display='none');$('whoami').textContent='';}
+function confirmTwice(btn,label,ask){if(btn.dataset.arm){delete btn.dataset.arm;btn.textContent=label;return true;}btn.dataset.arm='1';const old=btn.textContent;btn.textContent=ask;setTimeout(()=>{delete btn.dataset.arm;btn.textContent=label;},2500);return false;}
+
+/* ================= FIRESTORE SUBSCRIPTIONS ================= */
+let sessions=[];
+function subscribe(){
+  unsubSessions=onSnapshot(query(collection(db,'sessions'),orderBy('createdAt','desc'),limit(150)),snap=>{
+    sessions=snap.docs.map(d=>Object.assign({id:d.id},d.data()));if($('scrHome').classList.contains('active'))renderHome();
+  },e=>toast('Eroare sesiuni: '+e.code));
+  unsubCfg=onSnapshot(doc(db,'config','app'),s=>{senders=(s.exists()&&s.data().senders&&s.data().senders.length)?s.data().senders:DEF_SENDERS;renderSenders();});
+}
+window.addEventListener('online',()=>$('netbar').style.display='none');
+window.addEventListener('offline',()=>$('netbar').style.display='block');
+if(!navigator.onLine)$('netbar').style.display='block';
+
+/* ================= AUDIO / VOICE ================= */
+let actx=null,voices=[];
+function audioUnlock(){try{if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume();}catch(e){}}
+function beep(kind){
+  if(!cfg.beep)return;audioUnlock();if(!actx)return;
+  const seq=kind==='new'?[[880,.09],[1320,.14]]:kind==='bad'?[[220,.25]]:[[1046,.1]];let t=actx.currentTime;
+  seq.forEach(([f,d])=>{const o=actx.createOscillator(),g=actx.createGain();o.type='square';o.frequency.value=f;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.25,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+d+.02);t+=d+.03;});
+}
+function isRo(v){return /^ro\b/i.test(v.lang)||/ro[-_]RO/i.test(v.lang)||/rom[aâ]n/i.test(v.name)}
+function loadVoices(){voices=speechSynthesis.getVoices();const sel=$('sVoiceName');sel.innerHTML='<option value="">Automat (română dacă există)</option>';
+  [...voices].sort((a,b)=>(isRo(b)-isRo(a))||a.name.localeCompare(b.name)).forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=(isRo(v)?'🇷🇴 ':'')+`${v.name} (${v.lang})`;if(v.name===cfg.voiceName)o.selected=true;sel.appendChild(o);});}
+if('speechSynthesis' in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices;setInterval(()=>{try{if(!speechSynthesis.speaking)speechSynthesis.resume();}catch(e){}},5000);}
+function pickVoice(){voices=speechSynthesis.getVoices()||voices;if(cfg.voiceName){const v=voices.find(v=>v.name===cfg.voiceName);if(v)return v;}
+  const ro=voices.filter(isRo);return ro.find(v=>/google/i.test(v.name))||ro.find(v=>/natural|online/i.test(v.name))||ro[0]||null;}
+const U=['zero','unu','doi','trei','patru','cinci','șase','șapte','opt','nouă','zece','unsprezece','doisprezece','treisprezece','paisprezece','cincisprezece','șaisprezece','șaptesprezece','optsprezece','nouăsprezece'];
+const Z=['','','douăzeci','treizeci','patruzeci','cincizeci','șaizeci','șaptezeci','optzeci','nouăzeci'];
+function numRo(n){n=parseInt(n)||0;if(n<20)return U[n];if(n<100){const z=Z[Math.floor(n/10)],u=n%10;return u?z+' și '+U[u]:z;}return String(n);}
+let speakId=0,curU=null;
+function makeU(text,v){const u=new SpeechSynthesisUtterance(text);if(v&&(isRo(v)||v.name===cfg.voiceName))u.voice=v;u.lang='ro-RO';u.rate=cfg.rate;u.pitch=1;u.volume=1;return u;}
+function speak(text){
+  if(!cfg.voice)return;
+  if(!('speechSynthesis' in window)){voiceStatus('⚠ Browserul nu suportă voce (text-to-speech)',true);return;}
+  const id=++speakId;const v=pickVoice();
+  voiceStatus(v&&isRo(v)?'🔊 Voce română: '+v.name:'⚠ Nu există voce românească instalată pe acest dispozitiv – instaleaz-o din Setări › Text-to-speech (Română)',!(v&&isRo(v)));
+  try{speechSynthesis.cancel();}catch(e){}
+  const fire=(attempt)=>{
+    if(id!==speakId)return;let started=false;const u=makeU(text,v);curU=u;
+    u.onstart=()=>{started=true;};u.onerror=e=>{if(e.error&&!/interrupted|canceled/.test(e.error))voiceStatus('⚠ Eroare voce: '+e.error,true);};
+    try{speechSynthesis.resume();}catch(e){}try{speechSynthesis.speak(u);}catch(e){}
+    setTimeout(()=>{if(id===speakId&&!started&&attempt<2){try{speechSynthesis.cancel();}catch(e){}setTimeout(()=>fire(attempt+1),60);}},400);
+  };
+  setTimeout(()=>fire(0),60);
+}
+function voiceStatus(s,warn){const el=$('voiceStatus');if(el){el.textContent=s;el.style.color=warn?'var(--warn)':'';}}
+function sayBox(tpl,n){speak(tpl.replace('{n}',numRo(n)));}
+function vibe(p){if(cfg.vibe&&navigator.vibrate)try{navigator.vibrate(p)}catch(e){}}
+
+/* ================= NAV ================= */
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));$(id).classList.add('active');
+  $('btnBack').style.display=(id==='scrHome'||id==='scrLogin')?'none':'';
+  if(id==='scrHome'){$('title').textContent='Retur Marfă';stopCam();renderHome();}
+  if(id==='scrLogin'){$('title').textContent='Retur Marfă';}
+  if(id==='scrScan')focusScan();
+}
+$('btnBack').onclick=()=>{leaveSession();show('scrHome')};
+function leaveSession(){flushSave();if(unsubCur){unsubCur();unsubCur=null;}cur=null;}
+
+/* ================= HOME ================= */
+function renderSenders(){const s=$('fSender');const v=s.value;s.innerHTML='';senders.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;s.appendChild(o)});
+  const o=document.createElement('option');o.value='__other';o.textContent='Alt expeditor…';s.appendChild(o);if(v&&[...s.options].some(x=>x.value===v))s.value=v;}
+$('fSender').onchange=()=>{$('fSenderOther').style.display=$('fSender').value==='__other'?'':'none'};
+function renderHome(){
+  const list=$('sessList');list.innerHTML='';
+  $('sessCount').textContent=sessions.length?sessions.length+' total':'';
+  if(!sessions.length){list.innerHTML='<p class="muted" style="padding:14px;text-align:center">Nicio sesiune încă.</p>';return;}
+  sessions.forEach(s=>{
+    const pcs=(s.boxes||[]).reduce((a,b)=>a+b.qty,0);
+    const d=document.createElement('div');d.className='sess';
+    d.innerHTML=`<div class="t"><b>${esc(s.sender)}</b> · ${s.pallets||0} pal.${s.ref?' · '+esc(s.ref):''}<br><span class="muted">${fmtDate(s.createdAt)} · ${(s.boxes||[]).length} cutii · ${pcs} buc · ${esc(s.createdByName||'')}</span></div>
+      <span class="badge ${s.closedAt?'':'open'}">${s.closedAt?'închisă':'deschisă'}</span>`;
+    d.onclick=()=>openSession(s.id);list.appendChild(d);
+  });
+}
+$('btnStart').onclick=async()=>{
+  audioUnlock();
+  let sender=$('fSender').value;
+  if(sender==='__other'){sender=$('fSenderOther').value.trim();if(!sender){toast('Scrie numele expeditorului');return;}
+    if(!senders.includes(sender)&&me.role==='admin'){try{await setDoc(doc(db,'config','app'),{senders:[...senders,sender]},{merge:true});}catch(e){}}}
+  const ref=doc(collection(db,'sessions'));
+  const s={sender,pallets:parseInt($('fPallets').value)||0,ref:$('fRef').value.trim(),createdAt:Date.now(),closedAt:null,boxes:[],scans:[],nextBox:1,createdBy:me.uid,createdByName:me.name,updatedAt:Date.now()};
+  setDoc(ref,s).catch(e=>toast('Eroare salvare: '+e.code));
+  $('fPallets').value='';$('fRef').value='';$('fSenderOther').value='';
+  sessions.unshift(Object.assign({id:ref.id},s));
+  openSession(ref.id);speak('Sesiune pornită. Scanează primul produs.');
+};
+
+/* ================= SESSION (local-first + sync) ================= */
+let cur=null,dirty=false,saveT=null;
+function openSession(id){
+  audioUnlock();cur=sessions.find(s=>s.id===id);if(!cur)return;dirty=false;
+  $('title').textContent=`${cur.sender} · ${cur.pallets} pal.`;$('btnDelete').style.display=me.role==='admin'?'':'none';
+  show('scrScan');renderScan();setBig('',cur.closedAt?'Sesiune închisă':'Scanează un produs','–',cur.closedAt?'Redeschide din „Închide sesiunea”':'');
+  if(unsubCur)unsubCur();
+  unsubCur=onSnapshot(doc(db,'sessions',id),snap=>{
+    if(!snap.exists()){toast('Sesiunea a fost ștearsă');leaveSession();show('scrHome');return;}
+    if(snap.metadata.hasPendingWrites||dirty)return;           // modificările mele sunt deja pe ecran
+    const d=Object.assign({id:snap.id},snap.data());if(cur&&cur.id===id){cur=d;renderScan();}
+  });
+}
+function scheduleSave(){dirty=true;clearTimeout(saveT);saveT=setTimeout(flushSave,700);}
+function flushSave(){
+  clearTimeout(saveT);if(!cur||!dirty)return;const c=cur;dirty=false;
+  const {id,...data}=c;data.updatedAt=Date.now();
+  setDoc(doc(db,'sessions',id),data).catch(e=>{toast('Eroare salvare: '+(e.code||e.message));dirty=true;});
+}
+window.addEventListener('pagehide',flushSave);document.addEventListener('visibilitychange',()=>{if(document.hidden)flushSave();});
+
+function normEan(raw){let e=(raw||'').replace(/[\s\u0000-\u001f]/g,'').trim();if(cfg.upc&&/^\d{12}$/.test(e))e='0'+e;return e;}
+function setBig(cls,lbl,num,sub){const b=$('bigbox');b.className='';if(cls)b.classList.add(cls);$('bbLbl').textContent=lbl;$('bbNum').textContent=num;$('bbSub').textContent=sub||'';}
+function processScan(raw){
+  const ean=normEan(raw);if(!cur)return;
+  if(cur.closedAt){beep('bad');setBig('bad','Sesiune închisă','✕','Redeschide sesiunea pentru a scana');speak('Sesiunea este închisă');return;}
+  if(!/^[0-9A-Za-z\-\.]{4,32}$/.test(ean)){beep('bad');vibe([80,40,80]);setBig('bad','Cod invalid','✕',ean);speak('Cod invalid');return;}
+  let box=cur.boxes.find(b=>b.ean===ean&&!b.full);let isNew=false;
+  if(!box){box={no:cur.nextBox++,ean,name:nameFor(ean),qty:0,full:false,lots:[],createdAt:Date.now()};cur.boxes.push(box);isNew=true;}
+  box.qty++;cur.scans.push({ts:Date.now(),ean,box:box.no,isNew,by:me.name});
+  scheduleSave();
+  sayBox(isNew?cfg.tplNew:cfg.tplSame,box.no);beep(isNew?'new':'same');vibe(isNew?[60,40,60]:40);
+  setBig(isNew?'new':'same',isNew?'Cutie nouă':'Pune în',String(box.no),ean+(box.name?' · '+box.name:'')+' · '+box.qty+' buc');
+  renderScan(box.no);
+}
+function nameFor(ean){for(const s of sessions){const b=(s.boxes||[]).find(b=>b.ean===ean&&b.name);if(b)return b.name;}return '';}
+function lotSum(b){return (b.lots||[]).reduce((a,l)=>a+(parseInt(l.qty)||0),0);}
+function renderScan(hl){
+  if(!cur)return;const tb=$('boxRows');tb.innerHTML='';$('noBoxes').style.display=cur.boxes.length?'none':'';
+  [...cur.boxes].sort((a,b)=>b.no-a.no).forEach(b=>{
+    const tr=document.createElement('tr');if(b.full)tr.classList.add('full');if(b.no===hl)tr.classList.add('hl');
+    const lots=(b.lots&&b.lots.length)?'<br>🏷 '+b.lots.map(l=>l.qty+'×'+esc(l.batch)).join(', ')+(lotSum(b)!==b.qty?' <span class="tag">'+lotSum(b)+'/'+b.qty+'</span>':''):'';
+    tr.innerHTML=`<td class="n">${b.no}${b.full?'<span class="tag">plină</span>':''}</td><td><div class="ean">${esc(b.ean)}</div><div class="name">${esc(b.name||'')}${lots}</div></td><td class="q">${b.qty}</td><td style="width:34px;color:var(--muted)">›</td>`;
+    tr.onclick=()=>editBox(b);tb.appendChild(tr);
+  });
+  $('stScans').textContent=cur.boxes.reduce((a,b)=>a+b.qty,0);$('stBoxes').textContent=cur.boxes.length;$('stEans').textContent=new Set(cur.boxes.map(b=>b.ean)).size;
+  $('btnClose').textContent=cur.closedAt?'↺ Redeschide sesiunea':'✔ Închide sesiunea';$('btnClose').className='btn '+(cur.closedAt?'sec':'warn');
+}
+function undo(){
+  if(!cur||!cur.scans.length){toast('Nimic de anulat');return;}
+  const last=cur.scans.pop();const box=cur.boxes.find(b=>b.no===last.box);
+  if(box){box.qty--;if(box.qty<=0&&last.isNew){cur.boxes=cur.boxes.filter(b=>b!==box);if(box.no===cur.nextBox-1)cur.nextBox--;}}
+  scheduleSave();renderScan();speak('Anulat');beep('bad');setBig('','Anulat','↶',`EAN ${last.ean} scos din cutia ${last.box}`);
+}
+$('btnUndo').onclick=undo;
+$('btnSpeakTest').onclick=()=>{audioUnlock();sayBox(cfg.tplNew,7);beep('new');};
+
+/* scan input + keyboard wedge */
+const si=$('scanInput');
+function focusScan(){if(document.activeElement!==si&&!document.querySelector('.modal.show'))setTimeout(()=>si.focus({preventScroll:true}),50);}
+si.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const v=si.value;si.value='';if(v.trim())processScan(v);}});
+let kb='',kbT=null;
+document.addEventListener('keydown',e=>{
+  const a=document.activeElement;const typing=a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT');
+  if(typing||!cur||!$('scrScan').classList.contains('active')||document.querySelector('.modal.show'))return;
+  if(e.key==='Enter'){if(kb){processScan(kb);kb='';}return;}
+  if(e.key.length===1){kb+=e.key;clearTimeout(kbT);kbT=setTimeout(()=>kb='',400);}
+});
+document.addEventListener('click',e=>{if($('scrScan').classList.contains('active')&&!e.target.closest('input,select,textarea,button,.modal,tr'))focusScan();});
+
+/* ================= CAMERA ================= */
+let stream=null,detector=null,camRAF=null,lastCode='',lastCodeT=0;
+$('btnCam').onclick=async()=>{
+  audioUnlock();
+  if(!('BarcodeDetector' in window)){toast('Camera nu e suportată în acest browser – folosește un scanner sau Chrome pe Android');return;}
+  try{detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code']});
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}});
+    const v=$('video');v.srcObject=stream;await v.play();$('cam').style.display='block';camLoop();
+  }catch(e){toast('Nu pot porni camera: '+e.message);}
+};
+async function camLoop(){if(!stream)return;try{const codes=await detector.detect($('video'));if(codes.length){const c=codes[0].rawValue,now=Date.now();if(c!==lastCode||now-lastCodeT>1500){lastCode=c;lastCodeT=now;processScan(c);}}}catch(e){}camRAF=setTimeout(camLoop,120);}
+function stopCam(){if(camRAF){clearTimeout(camRAF);camRAF=null;}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}$('cam').style.display='none';}
+$('btnCamClose').onclick=stopCam;
+
+/* ================= BOX EDIT + LOTURI ================= */
+let editing=null;
+function editBox(b){editing=b;b.lots=b.lots||[];$('mbTitle').textContent='Cutia '+b.no+' · '+b.qty+' buc';$('mbEan').textContent='EAN '+b.ean;$('mbName').value=b.name||'';$('mbFull').checked=!!b.full;$('lotQty').value='';$('lotBatch').value='';$('lotHeard').textContent='';renderLots();$('mBox').classList.add('show');}
+$('mbCancel').onclick=()=>{$('mBox').classList.remove('show');focusScan();};
+$('mbSave').onclick=()=>{if(editing){if($('lotBatch').value.trim()&&parseInt($('lotQty').value)>0)addLot();editing.name=$('mbName').value.trim();editing.full=$('mbFull').checked;
+  cur.boxes.filter(b=>b.ean===editing.ean&&!b.name).forEach(b=>b.name=editing.name);scheduleSave();renderScan();}$('mBox').classList.remove('show');focusScan();};
+function renderLots(){
+  const tb=$('lotRows');tb.innerHTML='';
+  editing.lots.forEach((l,i)=>{const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="q" style="text-align:left;width:60px">${l.qty}</td><td class="ean" style="letter-spacing:2px">${esc(l.batch)}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
+    tr.querySelector('button').onclick=()=>{editing.lots.splice(i,1);scheduleSave();renderLots();};tb.appendChild(tr);});
+  const sum=lotSum(editing),w=$('lotWarn');
+  if(!editing.lots.length){w.textContent='Niciun lot declarat. Scrie bucățile, dictează batch-ul (🎤) sau tastează-l și apasă „Adaugă lot”.';w.style.color='';}
+  else if(sum===editing.qty){w.textContent=`✔ ${sum} din ${editing.qty} bucăți au lot declarat`;w.style.color='var(--ok)';}
+  else{w.textContent=`⚠ Loturi declarate: ${sum} buc · scanate în cutie: ${editing.qty} buc (diferență ${editing.qty-sum})`;w.style.color='var(--warn)';}
+  const rest=editing.qty-sum;$('lotQty').placeholder=rest>0?rest:'buc';
+}
+function addLot(){
+  const q=parseInt($('lotQty').value)||0,b=$('lotBatch').value.trim().toUpperCase();
+  if(q<=0){toast('Scrie numărul de bucăți');$('lotQty').focus();return false;}
+  if(!b){toast('Lipsește batch-ul');$('lotBatch').focus();return false;}
+  const ex=editing.lots.find(l=>l.batch===b);if(ex)ex.qty=(parseInt(ex.qty)||0)+q;else editing.lots.push({qty:q,batch:b});
+  scheduleSave();$('lotQty').value='';$('lotBatch').value='';$('lotHeard').textContent='';renderLots();
+  speak(`${numRo(q)} bucăți, lot ${spellDigits(b)}. Adăugat.`);return true;
+}
+$('lotAdd').onclick=addLot;
+$('lotRead').onclick=()=>{const b=$('lotBatch').value.trim();if(!b){toast('Nu e niciun batch de citit');return;}speak('Lot '+spellDigits(b));};
+function spellDigits(str){return str.toUpperCase().split('').map(c=>/\d/.test(c)?numRo(c):c==='-'?'liniuță':c==='/'?'bară':c).join(', ');}
+const WORD2DIG={zero:'0',unu:'1',una:'1',un:'1',o:'1',doi:'2','două':'2',doua:'2',trei:'3',patru:'4',cinci:'5','șase':'6',sase:'6','șapte':'7',sapte:'7',opt:'8','nouă':'9',noua:'9',
+  zece:'10',unsprezece:'11',doisprezece:'12',treisprezece:'13',paisprezece:'14',cincisprezece:'15','șaisprezece':'16',saisprezece:'16','șaptesprezece':'17',saptesprezece:'17',optsprezece:'18','nouăsprezece':'19',nouasprezece:'19',
+  'douăzeci':'20',douazeci:'20',treizeci:'30',patruzeci:'40',cincizeci:'50','șaizeci':'60',saizeci:'60','șaptezeci':'70',saptezeci:'70',optzeci:'80','nouăzeci':'90',nouazeci:'90'};
+function wordsToCode(t){let out='';t.toLowerCase().replace(/[.,;:!?]/g,' ').split(/\s+/).filter(Boolean).forEach(tok=>{
+  if(/^\d+$/.test(tok))out+=tok;else if(WORD2DIG[tok]!==undefined)out+=WORD2DIG[tok];else if(/^[a-z]$/.test(tok))out+=tok.toUpperCase();else if(/^[a-z]\d+$/i.test(tok)||/^\d+[a-z]$/i.test(tok))out+=tok.toUpperCase();});return out;}
+let rec=null,recActive=false;
+$('lotMic').onclick=()=>{
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){toast('Dictarea nu e suportată în acest browser – folosește Chrome pe Android');return;}
+  if(recActive){try{rec.stop();}catch(e){}return;}
+  try{speechSynthesis.cancel();}catch(e){}
+  rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=3;rec.continuous=false;
+  const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';$('lotHeard').textContent='Ascult… dictează cifră cu cifră';
+  let finalTxt='';
+  rec.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=r[0].transcript;}
+    const heard=(finalTxt+' '+interim).trim();$('lotHeard').textContent='Am auzit: „'+heard+'”';$('lotBatch').value=wordsToCode(heard);};
+  rec.onerror=e=>{$('lotHeard').textContent='Eroare microfon: '+e.error+(e.error==='not-allowed'?' – permite accesul la microfon':'');};
+  rec.onend=()=>{recActive=false;mic.style.background='';mic.textContent='🎤';const b=$('lotBatch').value.trim();if(b){$('lotHeard').textContent+=`  →  ${b} (${b.length} caractere)`;speak('Lot '+spellDigits(b)+'. Corect?');}};
+  try{rec.start();}catch(e){recActive=false;mic.style.background='';mic.textContent='🎤';toast('Nu pot porni microfonul');}
+};
+
+/* ================= CLOSE / DELETE / EXPORT ================= */
+$('btnClose').onclick=()=>{
+  if(!cur)return;
+  if(cur.closedAt){cur.closedAt=null;scheduleSave();renderScan();toast('Sesiune redeschisă');setBig('','Scanează un produs','–','');return;}
+  const btn=$('btnClose');
+  if(btn.dataset.arm){cur.closedAt=Date.now();cur.closedByName=me.name;delete btn.dataset.arm;scheduleSave();flushSave();renderScan();speak('Sesiune închisă');toast('Sesiune închisă');setBig('','Sesiune închisă','✔',`${cur.boxes.length} cutii · ${cur.boxes.reduce((a,b)=>a+b.qty,0)} buc`);return;}
+  btn.dataset.arm='1';btn.textContent='Apasă din nou pentru confirmare';setTimeout(()=>{delete btn.dataset.arm;renderScan();},3000);
+};
+$('btnDelete').onclick=async()=>{if(!cur||me.role!=='admin')return;if(!confirmTwice($('btnDelete'),'🗑 Șterge sesiunea','Apasă din nou pentru a ȘTERGE definitiv'))return;
+  const id=cur.id;dirty=false;if(unsubCur){unsubCur();unsubCur=null;}cur=null;try{await deleteDoc(doc(db,'sessions',id));toast('Sesiune ștearsă');}catch(e){toast('Eroare: '+e.code);}show('scrHome');};
+function csvLine(a){return a.map(v=>{v=String(v??'');return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(';');}
+$('btnExport').onclick=()=>{
+  if(!cur)return;
+  const rows=[csvLine(['Expeditor','Data sesiune','Nr paleti','Referinta','Cutia','EAN','Denumire','Bucati','Cutie plina','Loturi'])];
+  const boxes=[...cur.boxes].sort((a,b)=>a.no-b.no);
+  boxes.forEach(b=>rows.push(csvLine([cur.sender,fmtDate(cur.createdAt),cur.pallets,cur.ref,b.no,b.ean,b.name,b.qty,b.full?'da':'nu',(b.lots||[]).map(l=>l.qty+'x'+l.batch).join(' | ')])));
+  rows.push('');rows.push(csvLine(['Total cutii',cur.boxes.length,'Total bucati',cur.boxes.reduce((a,b)=>a+b.qty,0),'Operator',cur.createdByName||'']));
+  rows.push('');rows.push(csvLine(['Loturi pe cutii']));rows.push(csvLine(['Cutia','EAN','Denumire','Batch','Bucati']));
+  boxes.forEach(b=>(b.lots||[]).forEach(l=>rows.push(csvLine([b.no,b.ean,b.name,l.batch,l.qty]))));
+  rows.push('');rows.push(csvLine(['Jurnal scanari']));rows.push(csvLine(['Ora','EAN','Cutia','User']));
+  cur.scans.forEach(s=>rows.push(csvLine([new Date(s.ts).toLocaleTimeString('ro-RO'),s.ean,s.box,s.by||''])));
+  const blob=new Blob(['﻿'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`Retur_${cur.sender.replace(/[^\w]+/g,'_')}_${new Date(cur.createdAt).toISOString().slice(0,16).replace(/[:T]/g,'-')}.csv`;
+  document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+};
+
+/* ================= USERS (admin) ================= */
+$('btnUsers').onclick=()=>{if(me.role!=='admin')return;leaveSession();show('scrUsers');$('title').textContent='Utilizatori';
+  if(!unsubUsers)unsubUsers=onSnapshot(collection(db,'users'),snap=>{
+    const list=$('userList');list.innerHTML='';
+    snap.docs.map(d=>Object.assign({uid:d.id},d.data())).sort((a,b)=>a.name.localeCompare(b.name)).forEach(u=>{
+      const d=document.createElement('div');d.className='sess';d.style.cursor='default';
+      d.innerHTML=`<div class="t"><b>${esc(u.name)}</b><br><span class="muted">${esc(u.name)}@${EMAIL_DOMAIN}</span></div>
+        <span class="badge ${u.role==='admin'?'admin':''}">${u.role}</span><span class="badge ${u.active?'open':'off'}">${u.active?'activ':'inactiv'}</span>
+        ${u.uid!==me.uid?`<button class="iconbtn">${u.active?'Dezactivează':'Activează'}</button>`:'<span class="muted">eu</span>'}`;
+      const b=d.querySelector('button');if(b)b.onclick=async()=>{try{await updateDoc(doc(db,'users',u.uid),{active:!u.active});}catch(e){toast('Eroare: '+e.code);}};
+      list.appendChild(d);});
+  });
+};
+$('btnAddUser').onclick=async()=>{
+  const name=$('uName').value.trim(),pin=$('uPin').value.trim(),role=$('uRole').value;$('uErr').textContent='';
+  if(!slug(name)){$('uErr').textContent='Nume invalid.';return;}if(!/^\d{4,6}$/.test(pin)){$('uErr').textContent='PIN-ul trebuie să aibă 4–6 cifre.';return;}
+  $('btnAddUser').disabled=true;
+  try{
+    // app secundară: creează contul fără să deconecteze admin-ul
+    const app2=getApps().find(a=>a.name==='secondary')||initializeApp(firebaseConfig,'secondary');const auth2=getAuth(app2);
+    const cred=await createUserWithEmailAndPassword(auth2,emailOf(name),pwdOf(pin));await signOut(auth2);
+    await setDoc(doc(db,'users',cred.user.uid),{name:slug(name),role,active:true,createdAt:Date.now(),createdBy:me.name});
+    toast('Utilizator creat: '+slug(name));$('uName').value='';$('uPin').value='';
+  }catch(e){$('uErr').textContent=e.code==='auth/email-already-in-use'?'Există deja un utilizator cu acest nume.':'Eroare: '+(e.code||e.message);}
+  $('btnAddUser').disabled=false;
+};
+
+/* ================= SETTINGS + PIN ================= */
+$('btnSettings').onclick=()=>{$('sVoice').checked=cfg.voice;$('sBeep').checked=cfg.beep;$('sVibe').checked=cfg.vibe;$('sUpc').checked=cfg.upc;
+  $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';loadVoices();$('mSettings').classList.add('show');};
+$('sRate').oninput=()=>$('sRateV').textContent=$('sRate').value;
+$('btnCloseSettings').onclick=()=>{$('mSettings').classList.remove('show');focusScan();};
+$('btnSaveSettings').onclick=async()=>{cfg.voice=$('sVoice').checked;cfg.beep=$('sBeep').checked;cfg.vibe=$('sVibe').checked;cfg.upc=$('sUpc').checked;
+  cfg.rate=parseFloat($('sRate').value);cfg.voiceName=$('sVoiceName').value;cfg.tplSame=$('sTplSame').value||'{n}';cfg.tplNew=$('sTplNew').value||'Cutie nouă {n}';saveCfg();
+  if(me&&me.role==='admin'){const list=$('sSenders').value.split('\n').map(s=>s.trim()).filter(Boolean);try{await setDoc(doc(db,'config','app'),{senders:list.length?list:DEF_SENDERS},{merge:true});}catch(e){toast('Eroare expeditori: '+e.code);}}
+  $('mSettings').classList.remove('show');toast('Setări salvate');sayBox(cfg.tplSame,3);focusScan();};
+$('btnPin').onclick=async()=>{
+  const o=$('pOld').value.trim(),n=$('pNew').value.trim();$('pErr').textContent='';
+  if(!/^\d{4,6}$/.test(n)){$('pErr').textContent='PIN-ul nou trebuie să aibă 4–6 cifre.';return;}
+  try{const u=auth.currentUser;await reauthenticateWithCredential(u,EmailAuthProvider.credential(u.email,pwdOf(o)));await updatePassword(u,pwdOf(n));
+    $('pOld').value='';$('pNew').value='';toast('PIN schimbat');}
+  catch(e){$('pErr').textContent=/invalid-credential|wrong-password|invalid-login/.test(e.code)?'PIN-ul actual e greșit.':'Eroare: '+(e.code||e.message);}
+};
+</script>
+</body>
+</html>
