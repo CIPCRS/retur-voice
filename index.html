@@ -164,6 +164,7 @@
 <div class="modal" id="mSettings"><div class="box">
   <h3>Setări</h3>
   <div class="switch"><span>Ghidare vocală</span><input type="checkbox" id="sVoice"></div>
+  <div class="switch"><span>Voce din fișiere (pachet audio Alina), dacă există</span><input type="checkbox" id="sClips"></div>
   <div class="switch"><span>Semnal sonor (beep)</span><input type="checkbox" id="sBeep"></div>
   <div class="switch"><span>Vibrație la scanare</span><input type="checkbox" id="sVibe"></div>
   <div class="switch"><span>UPC-A (12 cifre) → EAN-13 (cu 0 în față)</span><input type="checkbox" id="sUpc"></div>
@@ -375,6 +376,43 @@ function fallbackVoice(){ // orice voce locală, când cea online a picat
 const U=['zero','unu','doi','trei','patru','cinci','șase','șapte','opt','nouă','zece','unsprezece','doisprezece','treisprezece','paisprezece','cincisprezece','șaisprezece','șaptesprezece','optsprezece','nouăsprezece'];
 const Z=['','','douăzeci','treizeci','patruzeci','cincizeci','șaizeci','șaptezeci','optzeci','nouăzeci'];
 function numRo(n){n=parseInt(n)||0;if(n<20)return U[n];if(n<100){const z=Z[Math.floor(n/10)],u=n%10;return u?z+' și '+U[u]:z;}return String(n);}
+/* ================= VOCE DIN FIȘIERE (pachet audio generat cu vocea Alina) ================= */
+const clips={ready:false,manifest:null,buf:{},phr:[],nums:{},playing:[],failed:false};
+async function clipsInit(){
+  if(clips.ready||clips.failed)return;
+  try{const r=await fetch('audio/manifest.json',{cache:'no-cache'});if(!r.ok)throw 0;const m=await r.json();clips.manifest=m;
+    const norm=t=>strip(t).replace(/[.,;:!?„”"()\-]/g,' ').split(/\s+/).filter(Boolean);
+    for(const [key,c] of Object.entries(m.clips||{})){const toks=norm(c.text);if(!toks.length)continue;clips.phr.push({key,toks,n:toks.length});}
+    clips.phr.sort((a,b)=>b.n-a.n);clips.ready=true;
+    voiceStatus(`🔊 Voce din fișiere: ${(m.voice||'').replace('ro-RO-','').replace('Neural','')} (${clips.phr.length} clipuri)`,false);
+    clipsPreload();
+  }catch(e){clips.failed=true;}
+}
+async function clipBuffer(key){
+  if(clips.buf[key])return clips.buf[key];audioUnlock();if(!actx)return null;
+  const c=clips.manifest.clips[key];if(!c)return null;
+  try{const r=await fetch('audio/'+c.file,{cache:'force-cache'});const ab=await r.arrayBuffer();const b=await actx.decodeAudioData(ab);clips.buf[key]=b;return b;}catch(e){return null;}
+}
+async function clipsPreload(){const keys=Object.keys(clips.manifest.clips);for(let i=0;i<keys.length;i+=6){await Promise.all(keys.slice(i,i+6).map(clipBuffer));}}
+function clipResolve(text){ // text → listă de chei de clipuri (potrivire lacomă, cea mai lungă frază întâi); null dacă ceva nu se potrivește
+  if(!clips.ready)return null;const toks=strip(text).replace(/[.,;:!?„”"()\-]/g,' ').split(/\s+/).filter(Boolean);if(!toks.length)return null;
+  const out=[];let i=0;
+  while(i<toks.length){let hit=null;
+    for(const p of clips.phr){if(p.n>toks.length-i)continue;let ok=true;for(let k=0;k<p.n;k++){if(p.toks[k]!==toks[i+k]){ok=false;break;}}if(ok){hit=p;break;}}
+    if(!hit)return null;out.push(hit.key);i+=hit.n;}
+  return out;
+}
+function clipsStop(){clips.playing.forEach(src=>{try{src.stop();}catch(e){}});clips.playing=[];}
+async function clipsPlay(keys,onEnd){
+  clipsStop();audioUnlock();if(!actx){onEnd&&onEnd();return false;}
+  const bufs=[];for(const k of keys){const b=await clipBuffer(k);if(!b)return false;bufs.push(b);}
+  if(actx.state==='suspended'){try{await actx.resume();}catch(e){}}
+  let t=actx.currentTime+0.03;const mine=[];
+  bufs.forEach(b=>{const src=actx.createBufferSource();src.buffer=b;src.connect(actx.destination);src.start(t);t+=b.duration+0.06;mine.push(src);});
+  clips.playing=mine;const last=mine[mine.length-1];
+  last.onended=()=>{if(clips.playing===mine){clips.playing=[];onEnd&&onEnd();}};
+  return true;
+}
 let speakId=0,curU=null;
 function makeU(text,v){const u=new SpeechSynthesisUtterance(text);if(v)u.voice=v;u.lang='ro-RO';u.rate=cfg.rate;u.pitch=1;u.volume=1;return u;}
 let speakDone=null,speakDoneT=null;
@@ -386,9 +424,16 @@ function speakThen(text,cb){ // rostește și apoi apelează cb (o singură dat�
 function speak(text){
   if(!cfg.voice)return;
   if(!('speechSynthesis' in window)){voiceStatus('⚠ Browserul nu suportă voce (text-to-speech)',true);return;}
-  const id=++speakId;speakTTS(text,id);
+  const id=++speakId;
+  if(clips.ready&&cfg.clips!==false){const keys=clipResolve(text);
+    if(keys){try{speechSynthesis.cancel();}catch(e){}
+      clipsPlay(keys,()=>{if(id!==speakId)return;const cb=speakDone;if(cb){speakDone=null;clearTimeout(speakDoneT);setTimeout(cb,120);}})
+        .then(okk=>{if(!okk&&id===speakId)speakTTS(text,id);});
+      return;}}
+  speakTTS(text,id);
 }
 function speakTTS(text,id){
+  clipsStop();
   let v=pickVoice()||(badVoices.size?fallbackVoice():null);
   const status=()=>{if(!v)voiceStatus('⚠ Nu există voce românească instalată – instaleaz-o din Setări › Text-to-speech (Română)',true);
     else if(isRo(v))voiceStatus((isOnline(v)?'🔊 Voce română online: ':'🔊 Voce română: ')+v.name,false);
@@ -864,11 +909,11 @@ $('btnAddUser').onclick=async()=>{
 };
 
 /* ================= SETTINGS + PIN ================= */
-$('btnSettings').onclick=()=>{$('sVoice').checked=cfg.voice;$('sBeep').checked=cfg.beep;$('sVibe').checked=cfg.vibe;$('sUpc').checked=cfg.upc;
+$('btnSettings').onclick=()=>{$('sVoice').checked=cfg.voice;$('sClips').checked=cfg.clips!==false;$('sBeep').checked=cfg.beep;$('sVibe').checked=cfg.vibe;$('sUpc').checked=cfg.upc;
   $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';$('prodInfo').innerHTML=prodInfoText();$('prodStatus').textContent='';loadVoices();$('mSettings').classList.add('show');};
 $('sRate').oninput=()=>$('sRateV').textContent=$('sRate').value;
 $('btnCloseSettings').onclick=()=>{$('mSettings').classList.remove('show');focusScan();};
-$('btnSaveSettings').onclick=async()=>{cfg.voice=$('sVoice').checked;cfg.beep=$('sBeep').checked;cfg.vibe=$('sVibe').checked;cfg.upc=$('sUpc').checked;
+$('btnSaveSettings').onclick=async()=>{cfg.voice=$('sVoice').checked;cfg.clips=$('sClips').checked;cfg.beep=$('sBeep').checked;cfg.vibe=$('sVibe').checked;cfg.upc=$('sUpc').checked;
   cfg.rate=parseFloat($('sRate').value);cfg.voiceName=$('sVoiceName').value;badVoices.clear();cfg.tplSame=$('sTplSame').value||'{n}';cfg.tplNew=$('sTplNew').value||'Cutie nouă {n}';saveCfg();
   if(me&&me.role==='admin'){const list=$('sSenders').value.split('\n').map(s=>s.trim()).filter(Boolean);try{await setDoc(doc(db,'config','app'),{senders:list.length?list:DEF_SENDERS},{merge:true});}catch(e){toast('Eroare expeditori: '+e.code);}}
   $('mSettings').classList.remove('show');toast('Setări salvate');sayBox(cfg.tplSame,3);focusScan();};
@@ -879,6 +924,7 @@ $('btnPin').onclick=async()=>{
     $('pOld').value='';$('pNew').value='';toast('PIN schimbat');}
   catch(e){$('pErr').textContent=/invalid-credential|wrong-password|invalid-login/.test(e.code)?'PIN-ul actual e greșit.':'Eroare: '+(e.code||e.message);}
 };
+clipsInit();
 </script>
 </body>
 </html>
