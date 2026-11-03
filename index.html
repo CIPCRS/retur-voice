@@ -678,12 +678,12 @@ function wizNext(first){
   if(!wiz.active||!editing)return;
   const rest=editing.qty-lotSum(editing);
   if(rest<=0){wiz.active=false;$('lotMic').style.background='';$('lotMic').textContent='🎤';
-    speakThen('Cutie completă. Salvez și trec la următoarea.',()=>{if(!editing)return;const no=editing.no;wiz.resuming=true;saveBox(true);setTimeout(()=>wiz.resuming=false,1500);
+    speakThen('Cutie completă.',()=>{if(!editing)return;const no=editing.no;wiz.resuming=true;saveBox(true);setTimeout(()=>wiz.resuming=false,1500);
       // după deschiderea următoarei cutii, continuă ghidarea
-      setTimeout(()=>{if(editing&&editing.no!==no){speakThen(`Cutia ${numRo(editing.no)}, ${bucRo(editing.qty)}.`,()=>{wiz.active=true;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);});}},900);});
+      setTimeout(()=>{if(editing&&editing.no!==no){speakThen(`Cutia ${numRo(editing.no)}.`,()=>{wiz.active=true;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);});}},900);});
     return;}
   const ok=parseInt($('lotOk').value),nok=parseInt($('lotNok').value),b=$('lotBatch').value;
-  const pre=first?(rest<editing.qty?`Mai sunt ${bucRo(rest)} fără lot. `:''):`Mai sunt ${bucRo(rest)} fără lot. `;
+  const pre=first?'':`Mai sunt ${numRoF(rest)}. `;
   if(b.length!==8)wizAsk('batch',pre);
   else if(isNaN(ok))wizAsk('ok');
   else if(isNaN(nok))wizAsk('nok');
@@ -712,9 +712,9 @@ function wizAsk(step,prefix){
     if(bEl.value.length===8&&!isNaN(parseInt(okEl.value))&&!isNaN(parseInt(nokEl.value))){
       if(q<=0){speakThen('Zero bucăți. Spune cantitățile.',()=>{okEl.value='';nokEl.value='';wizAsk('ok');});return;}
       clearTimeout(autoT);const conf=addLot(true);
-      if(conf){speakThen(conf,()=>{if(wiz.active)wizNext(false);});}else{wizAsk(step);}
+      if(conf){speakThen('Adăugat.',()=>{if(wiz.active)wizNext(false);});}else{wizAsk(step);}
       return;}
-    speakThen(msg.join(', ')+'.',()=>wizNext(false));
+    wizNext(false);
   });
 }
 $('lotMic').onclick=()=>{
