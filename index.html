@@ -656,10 +656,14 @@ function listen(){ // o ascultare → Promise<{text}|{error}>
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){res({error:'unsupported'});return;}
     try{speechSynthesis.cancel();}catch(e){}
     rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=1;rec.continuous=false;
-    const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',err=null,done=false;
-    const finish=()=>{if(done)return;done=true;recActive=false;mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';res(err?{error:err}:{text:finalTxt.trim()});};
-    rec.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=r[0].transcript;}
-      $('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interim).trim()+'”';};
+    const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',interimTxt='',err=null,done=false,silenceT=null;
+    const finish=()=>{if(done)return;done=true;recActive=false;clearTimeout(silenceT);mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';
+      const text=(finalTxt.trim()||interimTxt.trim()); // Safari (iPad/iPhone) dă uneori doar rezultate intermediare → le folosim
+      res(text?{text}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
+    rec.onresult=e=>{let interim='';for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=' '+r[0].transcript;}
+      if(interim.trim())interimTxt=interim;$('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interimTxt).trim()+'”';
+      // după ce s-a auzit ceva și urmează 1,5 s de liniște, încheiem (Safari nu închide singur)
+      clearTimeout(silenceT);silenceT=setTimeout(()=>{try{rec.stop();}catch(e){}setTimeout(finish,250);},1500);};
     rec.onerror=e=>{err=e.error||'error';};
     rec.onend=finish;
     try{rec.start();}catch(e){err='start';finish();}
