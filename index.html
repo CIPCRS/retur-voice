@@ -353,6 +353,12 @@ const Z=['','','douăzeci','treizeci','patruzeci','cincizeci','șaizeci','șapte
 function numRo(n){n=parseInt(n)||0;if(n<20)return U[n];if(n<100){const z=Z[Math.floor(n/10)],u=n%10;return u?z+' și '+U[u]:z;}return String(n);}
 let speakId=0,curU=null;
 function makeU(text,v){const u=new SpeechSynthesisUtterance(text);if(v)u.voice=v;u.lang='ro-RO';u.rate=cfg.rate;u.pitch=1;u.volume=1;return u;}
+let speakDone=null,speakDoneT=null;
+function speakThen(text,cb){ // rostește și apoi apelează cb (o singură dată), cu plasă de siguranță dacă evenimentul end nu vine
+  clearTimeout(speakDoneT);speakDone=cb;const id=speakId+1;
+  if(!cfg.voice||!('speechSynthesis' in window)){speak(text);setTimeout(()=>{if(speakDone===cb){speakDone=null;cb();}},300);return;}
+  speak(text);speakDoneT=setTimeout(()=>{if(speakDone===cb){speakDone=null;cb();}},600+70*text.length);
+}
 function speak(text){
   if(!cfg.voice)return;
   if(!('speechSynthesis' in window)){voiceStatus('⚠ Browserul nu suportă voce (text-to-speech)',true);return;}
@@ -364,7 +370,7 @@ function speak(text){
   try{if(speechSynthesis.speaking||speechSynthesis.pending)speechSynthesis.cancel();}catch(e){}
   const fire=(attempt)=>{
     if(id!==speakId)return;let started=false;const u=makeU(text,v);curU=u;
-    u.onstart=()=>{started=true;};
+    u.onstart=()=>{started=true;};u.onend=()=>{if(id===speakId&&speakDone){const cb=speakDone;speakDone=null;clearTimeout(speakDoneT);setTimeout(cb,150);}};
     u.onerror=e=>{const err=e.error||'';if(/interrupted|canceled/.test(err))return;
       // vocea (de obicei cea online) a picat → o marcăm și reîncercăm cu o voce locală
       if(v&&id===speakId&&attempt<3){badVoices.add(v.name);const fb=fallbackVoice();if(fb&&fb.name!==v.name){v=fb;status();setTimeout(()=>fire(attempt+1),80);return;}}
@@ -540,7 +546,7 @@ function editBox(b){
   $('mbTitle').textContent='Cutia '+editing.no+' · '+editing.qty+' buc scanate';$('mbEan').textContent='EAN '+editing.ean;$('mbInfo').innerHTML=editing.spgr?`SPGR <b style="color:var(--acc)">${esc(editing.spgr)}</b> · ${esc(editing.name)}`:'<span class="tag">EAN necunoscut în lista de articole</span> – cere admin-ului să actualizeze lista';$('mbFull').checked=editing.full;
   $('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();$('mBox').classList.add('show');setLotTarget('lotOk');setTimeout(()=>$('lotOk').focus({preventScroll:true}),80);
 }
-$('mbCancel').onclick=()=>{$('mBox').classList.remove('show');editing=null;focusScan();};
+$('mbCancel').onclick=()=>{if(wiz.active)wizStop(true);$('mBox').classList.remove('show');editing=null;focusScan();};
 function nextBoxMissing(afterNo){const list=(cur.boxes||[]).filter(b=>lotState(b)!=='ok').sort((a,b)=>a.no-b.no);return list.find(b=>b.no>(afterNo||0))||list[0]||null;}
 $('btnNextLot').onclick=()=>{const b=nextBoxMissing(0);if(b)editBox(b);else toast('Toate cutiile au loturi complete');};
 async function saveBox(thenNext){
@@ -558,14 +564,14 @@ async function saveBox(thenNext){
   if(thenNext){setTimeout(()=>{const n=nextBoxMissing(ed.no);if(n){editBox(n);speak('Cutia '+numRo(n.no));}else{toast('Toate cutiile au loturi complete');speak('Toate cutiile au loturi complete');focusScan();}},150);}
   else focusScan();
 }
-$('mbSave').onclick=()=>saveBox(false);$('mbSaveNext').onclick=()=>saveBox(true);
+$('mbSave').onclick=()=>{if(wiz.active)wizStop(true);saveBox(false);};$('mbSaveNext').onclick=()=>{if(wiz.active)wizStop(true);saveBox(true);};
 function renderLots(){
   const tb=$('lotRows');tb.innerHTML='';
   editing.lots.forEach((l,i)=>{const tr=document.createElement('tr');
     tr.innerHTML=`<td class="ean" style="letter-spacing:2px;font-size:16px">${esc(l.batch)}</td><td class="q">${parseInt(l.ok)||0}</td><td class="q" style="color:${(parseInt(l.nok)||0)?'#fca5a5':'inherit'}">${parseInt(l.nok)||0}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
     tr.querySelector('button').onclick=()=>{editing.lots.splice(i,1);renderLots();};tb.appendChild(tr);});
   const sum=lotSum(editing),w=$('lotWarn'),rest=editing.qty-sum;
-  if(!editing.lots.length){w.textContent=`Niciun lot declarat pentru cele ${editing.qty} bucăți. Scrie OK / NOK, apoi batch-ul (tastat sau 🎤) – lotul se adaugă automat la a 8-a cifră.`;w.style.color='';}
+  if(!editing.lots.length){w.textContent=`Niciun lot declarat pentru cele ${editing.qty} bucăți. Tastează batch / OK / NOK, sau apasă 🎤 o dată și răspunde la întrebări („Lotul?”, „Câte OK?”, „Câte NOK?”).`;w.style.color='';}
   else if(sum===editing.qty){w.textContent=`✔ ${sum} din ${editing.qty} bucăți au lot (${sum-lotNok(editing)} OK · ${lotNok(editing)} NOK)`;w.style.color='var(--ok)';}
   else{w.textContent=`⚠ Loturi declarate: ${sum} buc · scanate: ${editing.qty} buc (mai sunt ${rest} fără lot)`;w.style.color='var(--warn)';}
   $('lotOk').placeholder=rest>0?`max ${rest}`:'';
@@ -602,7 +608,7 @@ $('kp').addEventListener('pointerdown',e=>{const b=e.target.closest('button');if
 ['lotOk','lotNok'].forEach(f=>$(f).addEventListener('input',()=>{$(f).value=$(f).value.replace(/\D/g,'').slice(0,3);}));
 function updLotCount(){const b=$('lotBatch').value.replace(/\D/g,'');$('lotBatch').value=b;const c=$('lotCount');c.textContent=b?`${b.length}/8`:'';c.style.color=b.length===8?'var(--ok)':b?'var(--warn)':'';}
 let autoT=null;
-function tryAutoAdd(){clearTimeout(autoT);const b=$('lotBatch').value.replace(/\D/g,'');if(b.length!==8||!editing)return;
+function tryAutoAdd(){clearTimeout(autoT);const b=$('lotBatch').value.replace(/\D/g,'');if(b.length!==8||!editing)return;if(wiz.active&&wiz.step)return;
   const q=(parseInt($('lotOk').value)||0)+(parseInt($('lotNok').value)||0);
   if(q<=0){toast('Batch complet – scrie bucățile OK / NOK');speak('Scrie bucățile');setLotTarget('lotOk');$('lotOk').focus({preventScroll:true});return;}
   autoT=setTimeout(()=>{if(addLot()){setLotTarget('lotOk');setTimeout(()=>$('lotOk').focus({preventScroll:true}),50);}},250);}
@@ -616,21 +622,103 @@ const WORD2DIG={zero:'0',unu:'1',una:'1',un:'1',o:'1',doi:'2','două':'2',doua:'
   'douăzeci':'20',douazeci:'20',treizeci:'30',patruzeci:'40',cincizeci:'50','șaizeci':'60',saizeci:'60','șaptezeci':'70',saptezeci:'70',optzeci:'80','nouăzeci':'90',nouazeci:'90'};
 function wordsToCode(t){let out='';t.toLowerCase().replace(/[.,;:!?]/g,' ').split(/\s+/).filter(Boolean).forEach(tok=>{
   if(/^\d+$/.test(tok))out+=tok;else if(WORD2DIG[tok]!==undefined)out+=WORD2DIG[tok];});return out.replace(/\D/g,'').slice(0,8);}
+/* ---- dictare ghidată: 🎤 o singură dată → „Câte OK?” → „Câte NOK?” → „Lotul?” → lot adăugat → următorul lot / următoarea cutie ---- */
+const strip=t=>t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+const NUMW={zero:0,unu:1,una:1,un:1,o:1,doi:2,doua:2,trei:3,patru:4,cinci:5,sase:6,sapte:7,opt:8,noua:9,zece:10,unsprezece:11,doisprezece:12,douasprezece:12,treisprezece:13,paisprezece:14,patrusprezece:14,cincisprezece:15,saisprezece:16,saptesprezece:17,optsprezece:18,nouasprezece:19,douazeci:20,treizeci:30,patruzeci:40,cincizeci:50,saizeci:60,saptezeci:70,optzeci:80,nouazeci:90};
+const isOkW=t=>/^(ok|okay|oke|okei|o\.k\.?|bune|bun|buna|intregi)$/.test(t);
+const isNokW=t=>/^(nok|noc|nock|nuk|enok|n\.o\.k\.?|rele|rea|rau|stricate|stricata|deteriorate|deteriorata|defecte|defecta|sparte|sparta)$/.test(t);
+const isLotW=t=>/^(lot|lotul|batch|batchul|bach|baci|serie|seria)$/.test(t);
+const isNoneW=t=>/^(niciuna|niciunul|nimic|nu|zero|nici)$/.test(t);
+function wordsToNum(toks){let total=0,cur=0,seen=false;
+  for(const t of toks){if(/^\d+$/.test(t)){cur=cur*Math.pow(10,t.length)+parseInt(t);seen=true;}
+    else if(t==='si')continue;else if(/^sut[ae]$/.test(t)){cur=(cur||1)*100;seen=true;}
+    else if(/^mi[ei]$/.test(t)){total+=(cur||1)*1000;cur=0;seen=true;}
+    else if(NUMW[t]!==undefined){cur+=NUMW[t];seen=true;}else if(isNoneW(t)){seen=true;}}
+  return seen?total+cur:null;}
+function wordsToDigits(toks){let out='';for(const t of toks){if(/^\d+$/.test(t))out+=t;else if(NUMW[t]!==undefined&&NUMW[t]<20)out+=String(NUMW[t]);else if(/^sut[ae]$/.test(t))out+='00';}return out.replace(/\D/g,'').slice(0,8);}
+function parseLotSpeech(text){
+  const toks=strip(text).replace(/[.,;:!?]/g,' ').replace(/\bn\s*o\s*k\b/g,'nok').replace(/\bo\s*k\b/g,'ok').split(/\s+/).filter(Boolean);
+  const r={ok:null,nok:null,batch:null,keywords:false,rest:[]};let seg=[];
+  for(let i=0;i<toks.length;i++){const t=toks[i];
+    if(isOkW(t)){r.ok=wordsToNum(seg)??0;r.keywords=true;seg=[];}
+    else if(isNokW(t)){r.nok=wordsToNum(seg)??0;r.keywords=true;seg=[];}
+    else if(isLotW(t)){r.keywords=true;let d='',k=i+1;
+      for(;k<toks.length&&d.length<8;k++){const u=toks[k];if(isOkW(u)||isNokW(u))break;if(/^\d+$/.test(u))d+=u;else if(NUMW[u]!==undefined&&NUMW[u]<20)d+=String(NUMW[u]);else if(/^sut[ae]$/.test(u))d+='00';}
+      r.batch=d.replace(/\D/g,'').slice(0,8);
+      let s2=[];for(;k<toks.length;k++){const u=toks[k];if(isOkW(u)){r.ok=wordsToNum(s2)??0;s2=[];}else if(isNokW(u)){r.nok=wordsToNum(s2)??0;s2=[];}else s2.push(u);}
+      seg=[];break;}
+    else if(/^(bucati|bucata|buc|piese|piesa|cifre|cifra)$/.test(t))continue;
+    else seg.push(t);}
+  r.rest=seg;return r;}
 let rec=null,recActive=false;
+function listen(){ // o ascultare → Promise<{text}|{error}>
+  return new Promise(res=>{
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){res({error:'unsupported'});return;}
+    try{speechSynthesis.cancel();}catch(e){}
+    rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=1;rec.continuous=false;
+    const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',err=null,done=false;
+    const finish=()=>{if(done)return;done=true;recActive=false;mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';res(err?{error:err}:{text:finalTxt.trim()});};
+    rec.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=r[0].transcript;}
+      $('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interim).trim()+'”';};
+    rec.onerror=e=>{err=e.error||'error';};
+    rec.onend=finish;
+    try{rec.start();}catch(e){err='start';finish();}
+    setTimeout(()=>{if(!done){try{rec.stop();}catch(e){}setTimeout(finish,300);}},9000);
+  });
+}
+const wiz={active:false,step:null,retries:0};
+function wizStop(silent){wiz.active=false;wiz.step=null;try{if(rec)rec.abort?rec.abort():rec.stop();}catch(e){}const mic=$('lotMic');mic.style.background='';mic.textContent='🎤';if(!silent){speak('Oprit');$('lotHeard').textContent='Dictare oprită.';}}
+function wizStart(){ if(!editing)return;wiz.active=true;wiz.retries=0;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);}
+function wizNext(first){
+  if(!wiz.active||!editing)return;
+  const rest=editing.qty-lotSum(editing);
+  if(rest<=0){wiz.active=false;$('lotMic').style.background='';$('lotMic').textContent='🎤';
+    speakThen('Cutie completă. Salvez și trec la următoarea.',()=>{if(!editing)return;const no=editing.no;saveBox(true);
+      // după deschiderea următoarei cutii, continuă ghidarea
+      setTimeout(()=>{if(editing&&editing.no!==no){speakThen(`Cutia ${numRo(editing.no)}, ${bucRo(editing.qty)}.`,()=>{wiz.active=true;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);});}},900);});
+    return;}
+  const ok=parseInt($('lotOk').value),nok=parseInt($('lotNok').value),b=$('lotBatch').value;
+  const pre=first?(rest<editing.qty?`Mai sunt ${bucRo(rest)} fără lot. `:''):`Mai sunt ${bucRo(rest)} fără lot. `;
+  if(b.length!==8)wizAsk('batch',pre);
+  else if(isNaN(ok))wizAsk('ok');
+  else if(isNaN(nok))wizAsk('nok');
+  else{tryAutoAdd();}
+}
+function wizAsk(step,prefix){
+  if(!wiz.active)return;wiz.step=step;setLotTarget(step==='ok'?'lotOk':step==='nok'?'lotNok':'lotBatch');
+  const q=step==='ok'?'Câte OK?':step==='nok'?'Câte NOK?':'Lotul?';
+  $('lotHeard').textContent='🎤 '+q;
+  speakThen((prefix||'')+q,async()=>{
+    if(!wiz.active)return;const r=await listen();if(!wiz.active)return;
+    if(r.error){if(r.error==='no-speech'||r.error==='aborted'){if(++wiz.retries<=2){wizAsk(step,'Nu am auzit. ');return;}wizStop(true);speak('Nu aud nimic. Oprit');return;}
+      $('lotHeard').textContent='Eroare microfon: '+r.error+(r.error==='not-allowed'?' – permite accesul la microfon':r.error==='network'?' – recunoașterea vocală e blocată de rețea pe acest dispozitiv':'');wizStop(true);return;}
+    if(!r.text){if(++wiz.retries<=2){wizAsk(step,'Nu am auzit. ');return;}wizStop(true);speak('Nu aud nimic. Oprit');return;}
+    wiz.retries=0;const t=strip(r.text);
+    if(/\b(stop|opreste|gata|renunta|anuleaza)\b/.test(t)){wizStop();return;}
+    const pr=parseLotSpeech(r.text);const okEl=$('lotOk'),nokEl=$('lotNok'),bEl=$('lotBatch');let msg=[];
+    if(pr.keywords){if(pr.ok!==null){okEl.value=String(pr.ok);msg.push(bucRo(pr.ok)+' OK');}if(pr.nok!==null){nokEl.value=String(pr.nok);msg.push((pr.nok===1?'una':numRoF(pr.nok))+' NOK');}if(pr.batch){bEl.value=pr.batch;updLotCount();msg.push('lot '+spellDigits(pr.batch));}}
+    else if(step==='batch'){const d=wordsToDigits(pr.rest);if(d){bEl.value=d;updLotCount();msg.push('lot '+spellDigits(d));}}
+    else{const n=wordsToNum(pr.rest);if(n!==null){(step==='ok'?okEl:nokEl).value=String(n);msg.push(step==='ok'?bucRo(n)+' OK':(n===1?'una':numRoF(n))+' NOK');}}
+    $('lotHeard').textContent='Am auzit: „'+r.text+'”'+(msg.length?'  →  '+msg.join(', '):'  →  nu am înțeles');
+    if(!msg.length){if(++wiz.retries<=2){wizAsk(step,'Nu am înțeles. ');return;}wizStop(true);speak('Nu am înțeles. Oprit');return;}
+    const q=(parseInt(okEl.value)||0)+(parseInt(nokEl.value)||0),rest=editing.qty-lotSum(editing);
+    if(step==='batch'&&bEl.value.length!==8){speakThen(bEl.value.length===1?'Doar o cifră.':`Doar ${numRo(bEl.value.length)} cifre.`,()=>{bEl.value='';updLotCount();wizAsk('batch');});return;}
+    if(q>rest){speakThen(`Prea multe. Mai e loc doar pentru ${bucRo(rest)}.`,()=>{okEl.value='';nokEl.value='';wizAsk('ok');});return;}
+    if(bEl.value.length===8&&!isNaN(parseInt(okEl.value))&&!isNaN(parseInt(nokEl.value))){
+      if(q<=0){speakThen('Zero bucăți. Spune cantitățile.',()=>{okEl.value='';nokEl.value='';wizAsk('ok');});return;}
+      clearTimeout(autoT);if(addLot()){ // addLot rostește confirmarea; după ea continuăm
+        setTimeout(()=>{if(wiz.active)wizNext(false);},2600+120*8);}else{wizAsk(step);}
+      return;}
+    speakThen(msg.join(', ')+'.',()=>wizNext(false));
+  });
+}
 $('lotMic').onclick=()=>{
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){toast('Dictarea nu e suportată în acest browser – folosește Chrome pe Android');return;}
-  if(recActive){try{rec.stop();}catch(e){}return;}
-  try{speechSynthesis.cancel();}catch(e){}
-  rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=3;rec.continuous=false;
-  const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';$('lotHeard').textContent='Ascult… dictează cifră cu cifră';
-  let finalTxt='';
-  rec.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=r[0].transcript;}
-    const heard=(finalTxt+' '+interim).trim();$('lotHeard').textContent='Am auzit: „'+heard+'”';$('lotBatch').value=wordsToCode(heard);updLotCount();};
-  rec.onerror=e=>{$('lotHeard').textContent='Eroare microfon: '+e.error+(e.error==='not-allowed'?' – permite accesul la microfon':'');};
-  rec.onend=()=>{recActive=false;mic.style.background='';mic.textContent='🎤';const b=$('lotBatch').value.trim();updLotCount();if(b){$('lotHeard').textContent+=`  →  ${b} (${b.length}/8 cifre)`;if(b.length===8){const q=(parseInt($('lotOk').value)||0)+(parseInt($('lotNok').value)||0);if(q>0){speak('Lot '+spellDigits(b));setTimeout(tryAutoAdd,1800);}else{speak('Lot '+spellDigits(b)+'. Scrie bucățile');$('lotOk').focus();}}else speak('Lot '+spellDigits(b)+`. Doar ${numRo(b.length)} cifre, lipsesc ${numRo(8-b.length)}`);}};
-  try{rec.start();}catch(e){recActive=false;mic.style.background='';mic.textContent='🎤';toast('Nu pot porni microfonul');}
+  if(wiz.active||recActive){wizStop();return;}
+  audioUnlock();wizStart();
 };
+// la deschiderea manuală a altei cutii, ghidarea se oprește
 
 /* ================= CLOSE / DELETE / EXPORT ================= */
 $('btnClose').onclick=async()=>{
