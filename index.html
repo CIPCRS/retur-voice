@@ -314,7 +314,7 @@ window.addEventListener('offline',()=>$('netbar').style.display='block');
 if(!navigator.onLine)$('netbar').style.display='block';
 
 /* ================= AUDIO / VOICE ================= */
-let actx=null,voices=[];
+let actx=null,voices=[];const badVoices=new Set();
 function audioUnlock(){try{if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume();}catch(e){}}
 function beep(kind){
   if(!cfg.beep)return;audioUnlock();if(!actx)return;
@@ -323,26 +323,43 @@ function beep(kind){
 }
 function isRo(v){return /^ro\b/i.test(v.lang)||/ro[-_]RO/i.test(v.lang)||/rom[aâ]n/i.test(v.name)}
 function loadVoices(){voices=speechSynthesis.getVoices();const sel=$('sVoiceName');sel.innerHTML='<option value="">Automat (română dacă există)</option>';
-  [...voices].sort((a,b)=>(isRo(b)-isRo(a))||a.name.localeCompare(b.name)).forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=(isRo(v)?'🇷🇴 ':'')+`${v.name} (${v.lang})`;if(v.name===cfg.voiceName)o.selected=true;sel.appendChild(o);});}
+  [...voices].sort((a,b)=>(isRo(b)-isRo(a))||a.name.localeCompare(b.name)).forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=(isRo(v)?'🇷🇴 ':'')+`${v.name} (${v.lang})`+(isOnline(v)?' – online':' – locală');if(v.name===cfg.voiceName)o.selected=true;sel.appendChild(o);});}
 if('speechSynthesis' in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices;setInterval(()=>{try{if(!speechSynthesis.speaking)speechSynthesis.resume();}catch(e){}},5000);}
-function pickVoice(){voices=speechSynthesis.getVoices()||voices;if(cfg.voiceName){const v=voices.find(v=>v.name===cfg.voiceName);if(v)return v;}
-  const ro=voices.filter(isRo);return ro.find(v=>/google/i.test(v.name))||ro.find(v=>/natural|online/i.test(v.name))||ro[0]||null;}
+function isOnline(v){return /online|natural|neural/i.test(v.name)||(v.localService===false);}
+function pickVoice(){
+  voices=speechSynthesis.getVoices()||voices;
+  if(cfg.voiceName){const v=voices.find(v=>v.name===cfg.voiceName);if(v&&!badVoices.has(v.name))return v;}
+  const ro=voices.filter(v=>isRo(v)&&!badVoices.has(v.name));
+  // preferință: voce română locală (offline) > Google > online/natural
+  return ro.find(v=>!isOnline(v)&&/google/i.test(v.name))||ro.find(v=>!isOnline(v))||ro.find(v=>/google/i.test(v.name))||ro[0]||null;
+}
+function fallbackVoice(){ // orice voce locală, când cea online a picat
+  voices=speechSynthesis.getVoices()||voices;const loc=voices.filter(v=>!isOnline(v)&&!badVoices.has(v.name));
+  return loc.find(isRo)||loc.find(v=>/^en/i.test(v.lang))||loc[0]||null;
+}
 const U=['zero','unu','doi','trei','patru','cinci','șase','șapte','opt','nouă','zece','unsprezece','doisprezece','treisprezece','paisprezece','cincisprezece','șaisprezece','șaptesprezece','optsprezece','nouăsprezece'];
 const Z=['','','douăzeci','treizeci','patruzeci','cincizeci','șaizeci','șaptezeci','optzeci','nouăzeci'];
 function numRo(n){n=parseInt(n)||0;if(n<20)return U[n];if(n<100){const z=Z[Math.floor(n/10)],u=n%10;return u?z+' și '+U[u]:z;}return String(n);}
 let speakId=0,curU=null;
-function makeU(text,v){const u=new SpeechSynthesisUtterance(text);if(v&&(isRo(v)||v.name===cfg.voiceName))u.voice=v;u.lang='ro-RO';u.rate=cfg.rate;u.pitch=1;u.volume=1;return u;}
+function makeU(text,v){const u=new SpeechSynthesisUtterance(text);if(v)u.voice=v;u.lang='ro-RO';u.rate=cfg.rate;u.pitch=1;u.volume=1;return u;}
 function speak(text){
   if(!cfg.voice)return;
   if(!('speechSynthesis' in window)){voiceStatus('⚠ Browserul nu suportă voce (text-to-speech)',true);return;}
-  const id=++speakId;const v=pickVoice();
-  voiceStatus(v&&isRo(v)?'🔊 Voce română: '+v.name:'⚠ Nu există voce românească instalată pe acest dispozitiv – instaleaz-o din Setări › Text-to-speech (Română)',!(v&&isRo(v)));
-  try{speechSynthesis.cancel();}catch(e){}
+  const id=++speakId;let v=pickVoice()||(badVoices.size?fallbackVoice():null);
+  const status=()=>{if(!v)voiceStatus('⚠ Nu există voce românească instalată – instaleaz-o din Setări › Text-to-speech (Română)',true);
+    else if(isRo(v))voiceStatus((isOnline(v)?'🔊 Voce română online: ':'🔊 Voce română: ')+v.name,false);
+    else voiceStatus('⚠ Vocea română online nu funcționează – folosesc vocea locală '+v.name+' (instalează pachetul de limbă română în Windows pentru voce corectă)',true);};
+  status();
+  try{if(speechSynthesis.speaking||speechSynthesis.pending)speechSynthesis.cancel();}catch(e){}
   const fire=(attempt)=>{
     if(id!==speakId)return;let started=false;const u=makeU(text,v);curU=u;
-    u.onstart=()=>{started=true;};u.onerror=e=>{if(e.error&&!/interrupted|canceled/.test(e.error))voiceStatus('⚠ Eroare voce: '+e.error,true);};
+    u.onstart=()=>{started=true;};
+    u.onerror=e=>{const err=e.error||'';if(/interrupted|canceled/.test(err))return;
+      // vocea (de obicei cea online) a picat → o marcăm și reîncercăm cu o voce locală
+      if(v&&id===speakId&&attempt<3){badVoices.add(v.name);const fb=fallbackVoice();if(fb&&fb.name!==v.name){v=fb;status();setTimeout(()=>fire(attempt+1),80);return;}}
+      voiceStatus('⚠ Eroare voce: '+err+' – nicio voce locală disponibilă; instalează limba română în Windows (Text-to-speech)',true);};
     try{speechSynthesis.resume();}catch(e){}try{speechSynthesis.speak(u);}catch(e){}
-    setTimeout(()=>{if(id===speakId&&!started&&attempt<2){try{speechSynthesis.cancel();}catch(e){}setTimeout(()=>fire(attempt+1),60);}},400);
+    setTimeout(()=>{if(id===speakId&&!started&&attempt<2){try{speechSynthesis.cancel();}catch(e){}setTimeout(()=>fire(attempt+1),60);}},700);
   };
   setTimeout(()=>fire(0),60);
 }
@@ -697,7 +714,7 @@ $('btnSettings').onclick=()=>{$('sVoice').checked=cfg.voice;$('sBeep').checked=c
 $('sRate').oninput=()=>$('sRateV').textContent=$('sRate').value;
 $('btnCloseSettings').onclick=()=>{$('mSettings').classList.remove('show');focusScan();};
 $('btnSaveSettings').onclick=async()=>{cfg.voice=$('sVoice').checked;cfg.beep=$('sBeep').checked;cfg.vibe=$('sVibe').checked;cfg.upc=$('sUpc').checked;
-  cfg.rate=parseFloat($('sRate').value);cfg.voiceName=$('sVoiceName').value;cfg.tplSame=$('sTplSame').value||'{n}';cfg.tplNew=$('sTplNew').value||'Cutie nouă {n}';saveCfg();
+  cfg.rate=parseFloat($('sRate').value);cfg.voiceName=$('sVoiceName').value;badVoices.clear();cfg.tplSame=$('sTplSame').value||'{n}';cfg.tplNew=$('sTplNew').value||'Cutie nouă {n}';saveCfg();
   if(me&&me.role==='admin'){const list=$('sSenders').value.split('\n').map(s=>s.trim()).filter(Boolean);try{await setDoc(doc(db,'config','app'),{senders:list.length?list:DEF_SENDERS},{merge:true});}catch(e){toast('Eroare expeditori: '+e.code);}}
   $('mSettings').classList.remove('show');toast('Setări salvate');sayBox(cfg.tplSame,3);focusScan();};
 $('btnPin').onclick=async()=>{
