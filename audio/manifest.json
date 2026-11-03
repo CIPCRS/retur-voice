@@ -1,0 +1,670 @@
+{
+ "voice": "ro-RO-AlinaNeural",
+ "rate": "+0%",
+ "clips": {
+  "cutie_noua": {
+   "text": "Cutie nouă",
+   "file": "cutie_noua.mp3"
+  },
+  "cutia": {
+   "text": "Cutia",
+   "file": "cutia.mp3"
+  },
+  "lot": {
+   "text": "lot",
+   "file": "lot.mp3"
+  },
+  "lotul": {
+   "text": "Lotul?",
+   "file": "lotul.mp3"
+  },
+  "cate_ok": {
+   "text": "Câte OK?",
+   "file": "cate_ok.mp3"
+  },
+  "cate_nok": {
+   "text": "Câte NOK?",
+   "file": "cate_nok.mp3"
+  },
+  "ok": {
+   "text": "OK",
+   "file": "ok.mp3"
+  },
+  "nok": {
+   "text": "NOK",
+   "file": "nok.mp3"
+  },
+  "adaugat": {
+   "text": "Adăugat.",
+   "file": "adaugat.mp3"
+  },
+  "cutie_completa": {
+   "text": "Cutie completă.",
+   "file": "cutie_completa.mp3"
+  },
+  "mai_sunt": {
+   "text": "Mai sunt",
+   "file": "mai_sunt.mp3"
+  },
+  "mai_e": {
+   "text": "Mai e",
+   "file": "mai_e.mp3"
+  },
+  "mai_e_loc_doar_pentru": {
+   "text": "Mai e loc doar pentru",
+   "file": "mai_e_loc_doar_pentru.mp3"
+  },
+  "fara_lot": {
+   "text": "fără lot",
+   "file": "fara_lot.mp3"
+  },
+  "doar": {
+   "text": "Doar",
+   "file": "doar.mp3"
+  },
+  "cifre": {
+   "text": "cifre",
+   "file": "cifre.mp3"
+  },
+  "o_cifra": {
+   "text": "o cifră",
+   "file": "o_cifra.mp3"
+  },
+  "lipsesc": {
+   "text": "lipsesc",
+   "file": "lipsesc.mp3"
+  },
+  "bucati": {
+   "text": "bucăți",
+   "file": "bucati.mp3"
+  },
+  "o_bucata": {
+   "text": "o bucată",
+   "file": "o_bucata.mp3"
+  },
+  "prea_multe": {
+   "text": "Prea multe.",
+   "file": "prea_multe.mp3"
+  },
+  "nu_am_auzit": {
+   "text": "Nu am auzit.",
+   "file": "nu_am_auzit.mp3"
+  },
+  "nu_am_inteles": {
+   "text": "Nu am înțeles.",
+   "file": "nu_am_inteles.mp3"
+  },
+  "repeta": {
+   "text": "Repetă.",
+   "file": "repeta.mp3"
+  },
+  "nu_aud_nimic": {
+   "text": "Nu aud nimic.",
+   "file": "nu_aud_nimic.mp3"
+  },
+  "oprit": {
+   "text": "Oprit.",
+   "file": "oprit.mp3"
+  },
+  "corect": {
+   "text": "Corect?",
+   "file": "corect.mp3"
+  },
+  "toate_complete": {
+   "text": "Toate cutiile au loturi complete.",
+   "file": "toate_complete.mp3"
+  },
+  "toate_au_lot": {
+   "text": "Toate bucățile au deja lot.",
+   "file": "toate_au_lot.mp3"
+  },
+  "spune_bucatile": {
+   "text": "Spune bucățile.",
+   "file": "spune_bucatile.mp3"
+  },
+  "spune_cantitatile": {
+   "text": "Spune cantitățile.",
+   "file": "spune_cantitatile.mp3"
+  },
+  "batch_incomplet": {
+   "text": "Batch incomplet,",
+   "file": "batch_incomplet.mp3"
+  },
+  "lipseste_batch": {
+   "text": "Lipsește batch-ul.",
+   "file": "lipseste_batch.mp3"
+  },
+  "loturile_depasesc": {
+   "text": "Loturile depășesc bucățile scanate.",
+   "file": "loturile_depasesc.mp3"
+  },
+  "sesiune_pornita": {
+   "text": "Sesiune pornită.",
+   "file": "sesiune_pornita.mp3"
+  },
+  "scaneaza_primul": {
+   "text": "Scanează primul produs.",
+   "file": "scaneaza_primul.mp3"
+  },
+  "sesiune_inchisa": {
+   "text": "Sesiune închisă.",
+   "file": "sesiune_inchisa.mp3"
+  },
+  "sesiunea_este_inchisa": {
+   "text": "Sesiunea este închisă.",
+   "file": "sesiunea_este_inchisa.mp3"
+  },
+  "anulat": {
+   "text": "Anulat.",
+   "file": "anulat.mp3"
+  },
+  "cod_invalid": {
+   "text": "Cod invalid.",
+   "file": "cod_invalid.mp3"
+  },
+  "fara_conexiune": {
+   "text": "Fără conexiune.",
+   "file": "fara_conexiune.mp3"
+  },
+  "nu_pot_cutie_noua": {
+   "text": "Nu pot deschide cutie nouă.",
+   "file": "nu_pot_cutie_noua.mp3"
+  },
+  "eroare": {
+   "text": "Eroare.",
+   "file": "eroare.mp3"
+  },
+  "scaneaza_din_nou": {
+   "text": "Scanează din nou.",
+   "file": "scaneaza_din_nou.mp3"
+  },
+  "deschide_cutia": {
+   "text": "Deschide cutia",
+   "file": "deschide_cutia.mp3"
+  },
+  "pune_in": {
+   "text": "Pune în",
+   "file": "pune_in.mp3"
+  },
+  "nou": {
+   "text": "Nou",
+   "file": "nou.mp3"
+  },
+  "n_0": {
+   "text": "zero",
+   "file": "n_0.mp3"
+  },
+  "n_1": {
+   "text": "unu",
+   "file": "n_1.mp3"
+  },
+  "f_1": {
+   "text": "una",
+   "file": "f_1.mp3"
+  },
+  "n_2": {
+   "text": "doi",
+   "file": "n_2.mp3"
+  },
+  "f_2": {
+   "text": "două",
+   "file": "f_2.mp3"
+  },
+  "n_3": {
+   "text": "trei",
+   "file": "n_3.mp3"
+  },
+  "n_4": {
+   "text": "patru",
+   "file": "n_4.mp3"
+  },
+  "n_5": {
+   "text": "cinci",
+   "file": "n_5.mp3"
+  },
+  "n_6": {
+   "text": "șase",
+   "file": "n_6.mp3"
+  },
+  "n_7": {
+   "text": "șapte",
+   "file": "n_7.mp3"
+  },
+  "n_8": {
+   "text": "opt",
+   "file": "n_8.mp3"
+  },
+  "n_9": {
+   "text": "nouă",
+   "file": "n_9.mp3"
+  },
+  "n_10": {
+   "text": "zece",
+   "file": "n_10.mp3"
+  },
+  "n_11": {
+   "text": "unsprezece",
+   "file": "n_11.mp3"
+  },
+  "n_12": {
+   "text": "doisprezece",
+   "file": "n_12.mp3"
+  },
+  "f_12": {
+   "text": "douăsprezece",
+   "file": "f_12.mp3"
+  },
+  "n_13": {
+   "text": "treisprezece",
+   "file": "n_13.mp3"
+  },
+  "n_14": {
+   "text": "paisprezece",
+   "file": "n_14.mp3"
+  },
+  "n_15": {
+   "text": "cincisprezece",
+   "file": "n_15.mp3"
+  },
+  "n_16": {
+   "text": "șaisprezece",
+   "file": "n_16.mp3"
+  },
+  "n_17": {
+   "text": "șaptesprezece",
+   "file": "n_17.mp3"
+  },
+  "n_18": {
+   "text": "optsprezece",
+   "file": "n_18.mp3"
+  },
+  "n_19": {
+   "text": "nouăsprezece",
+   "file": "n_19.mp3"
+  },
+  "n_20": {
+   "text": "douăzeci",
+   "file": "n_20.mp3"
+  },
+  "n_21": {
+   "text": "douăzeci și unu",
+   "file": "n_21.mp3"
+  },
+  "f_21": {
+   "text": "douăzeci și una",
+   "file": "f_21.mp3"
+  },
+  "n_22": {
+   "text": "douăzeci și doi",
+   "file": "n_22.mp3"
+  },
+  "f_22": {
+   "text": "douăzeci și două",
+   "file": "f_22.mp3"
+  },
+  "n_23": {
+   "text": "douăzeci și trei",
+   "file": "n_23.mp3"
+  },
+  "n_24": {
+   "text": "douăzeci și patru",
+   "file": "n_24.mp3"
+  },
+  "n_25": {
+   "text": "douăzeci și cinci",
+   "file": "n_25.mp3"
+  },
+  "n_26": {
+   "text": "douăzeci și șase",
+   "file": "n_26.mp3"
+  },
+  "n_27": {
+   "text": "douăzeci și șapte",
+   "file": "n_27.mp3"
+  },
+  "n_28": {
+   "text": "douăzeci și opt",
+   "file": "n_28.mp3"
+  },
+  "n_29": {
+   "text": "douăzeci și nouă",
+   "file": "n_29.mp3"
+  },
+  "n_30": {
+   "text": "treizeci",
+   "file": "n_30.mp3"
+  },
+  "n_31": {
+   "text": "treizeci și unu",
+   "file": "n_31.mp3"
+  },
+  "f_31": {
+   "text": "treizeci și una",
+   "file": "f_31.mp3"
+  },
+  "n_32": {
+   "text": "treizeci și doi",
+   "file": "n_32.mp3"
+  },
+  "f_32": {
+   "text": "treizeci și două",
+   "file": "f_32.mp3"
+  },
+  "n_33": {
+   "text": "treizeci și trei",
+   "file": "n_33.mp3"
+  },
+  "n_34": {
+   "text": "treizeci și patru",
+   "file": "n_34.mp3"
+  },
+  "n_35": {
+   "text": "treizeci și cinci",
+   "file": "n_35.mp3"
+  },
+  "n_36": {
+   "text": "treizeci și șase",
+   "file": "n_36.mp3"
+  },
+  "n_37": {
+   "text": "treizeci și șapte",
+   "file": "n_37.mp3"
+  },
+  "n_38": {
+   "text": "treizeci și opt",
+   "file": "n_38.mp3"
+  },
+  "n_39": {
+   "text": "treizeci și nouă",
+   "file": "n_39.mp3"
+  },
+  "n_40": {
+   "text": "patruzeci",
+   "file": "n_40.mp3"
+  },
+  "n_41": {
+   "text": "patruzeci și unu",
+   "file": "n_41.mp3"
+  },
+  "f_41": {
+   "text": "patruzeci și una",
+   "file": "f_41.mp3"
+  },
+  "n_42": {
+   "text": "patruzeci și doi",
+   "file": "n_42.mp3"
+  },
+  "f_42": {
+   "text": "patruzeci și două",
+   "file": "f_42.mp3"
+  },
+  "n_43": {
+   "text": "patruzeci și trei",
+   "file": "n_43.mp3"
+  },
+  "n_44": {
+   "text": "patruzeci și patru",
+   "file": "n_44.mp3"
+  },
+  "n_45": {
+   "text": "patruzeci și cinci",
+   "file": "n_45.mp3"
+  },
+  "n_46": {
+   "text": "patruzeci și șase",
+   "file": "n_46.mp3"
+  },
+  "n_47": {
+   "text": "patruzeci și șapte",
+   "file": "n_47.mp3"
+  },
+  "n_48": {
+   "text": "patruzeci și opt",
+   "file": "n_48.mp3"
+  },
+  "n_49": {
+   "text": "patruzeci și nouă",
+   "file": "n_49.mp3"
+  },
+  "n_50": {
+   "text": "cincizeci",
+   "file": "n_50.mp3"
+  },
+  "n_51": {
+   "text": "cincizeci și unu",
+   "file": "n_51.mp3"
+  },
+  "f_51": {
+   "text": "cincizeci și una",
+   "file": "f_51.mp3"
+  },
+  "n_52": {
+   "text": "cincizeci și doi",
+   "file": "n_52.mp3"
+  },
+  "f_52": {
+   "text": "cincizeci și două",
+   "file": "f_52.mp3"
+  },
+  "n_53": {
+   "text": "cincizeci și trei",
+   "file": "n_53.mp3"
+  },
+  "n_54": {
+   "text": "cincizeci și patru",
+   "file": "n_54.mp3"
+  },
+  "n_55": {
+   "text": "cincizeci și cinci",
+   "file": "n_55.mp3"
+  },
+  "n_56": {
+   "text": "cincizeci și șase",
+   "file": "n_56.mp3"
+  },
+  "n_57": {
+   "text": "cincizeci și șapte",
+   "file": "n_57.mp3"
+  },
+  "n_58": {
+   "text": "cincizeci și opt",
+   "file": "n_58.mp3"
+  },
+  "n_59": {
+   "text": "cincizeci și nouă",
+   "file": "n_59.mp3"
+  },
+  "n_60": {
+   "text": "șaizeci",
+   "file": "n_60.mp3"
+  },
+  "n_61": {
+   "text": "șaizeci și unu",
+   "file": "n_61.mp3"
+  },
+  "f_61": {
+   "text": "șaizeci și una",
+   "file": "f_61.mp3"
+  },
+  "n_62": {
+   "text": "șaizeci și doi",
+   "file": "n_62.mp3"
+  },
+  "f_62": {
+   "text": "șaizeci și două",
+   "file": "f_62.mp3"
+  },
+  "n_63": {
+   "text": "șaizeci și trei",
+   "file": "n_63.mp3"
+  },
+  "n_64": {
+   "text": "șaizeci și patru",
+   "file": "n_64.mp3"
+  },
+  "n_65": {
+   "text": "șaizeci și cinci",
+   "file": "n_65.mp3"
+  },
+  "n_66": {
+   "text": "șaizeci și șase",
+   "file": "n_66.mp3"
+  },
+  "n_67": {
+   "text": "șaizeci și șapte",
+   "file": "n_67.mp3"
+  },
+  "n_68": {
+   "text": "șaizeci și opt",
+   "file": "n_68.mp3"
+  },
+  "n_69": {
+   "text": "șaizeci și nouă",
+   "file": "n_69.mp3"
+  },
+  "n_70": {
+   "text": "șaptezeci",
+   "file": "n_70.mp3"
+  },
+  "n_71": {
+   "text": "șaptezeci și unu",
+   "file": "n_71.mp3"
+  },
+  "f_71": {
+   "text": "șaptezeci și una",
+   "file": "f_71.mp3"
+  },
+  "n_72": {
+   "text": "șaptezeci și doi",
+   "file": "n_72.mp3"
+  },
+  "f_72": {
+   "text": "șaptezeci și două",
+   "file": "f_72.mp3"
+  },
+  "n_73": {
+   "text": "șaptezeci și trei",
+   "file": "n_73.mp3"
+  },
+  "n_74": {
+   "text": "șaptezeci și patru",
+   "file": "n_74.mp3"
+  },
+  "n_75": {
+   "text": "șaptezeci și cinci",
+   "file": "n_75.mp3"
+  },
+  "n_76": {
+   "text": "șaptezeci și șase",
+   "file": "n_76.mp3"
+  },
+  "n_77": {
+   "text": "șaptezeci și șapte",
+   "file": "n_77.mp3"
+  },
+  "n_78": {
+   "text": "șaptezeci și opt",
+   "file": "n_78.mp3"
+  },
+  "n_79": {
+   "text": "șaptezeci și nouă",
+   "file": "n_79.mp3"
+  },
+  "n_80": {
+   "text": "optzeci",
+   "file": "n_80.mp3"
+  },
+  "n_81": {
+   "text": "optzeci și unu",
+   "file": "n_81.mp3"
+  },
+  "f_81": {
+   "text": "optzeci și una",
+   "file": "f_81.mp3"
+  },
+  "n_82": {
+   "text": "optzeci și doi",
+   "file": "n_82.mp3"
+  },
+  "f_82": {
+   "text": "optzeci și două",
+   "file": "f_82.mp3"
+  },
+  "n_83": {
+   "text": "optzeci și trei",
+   "file": "n_83.mp3"
+  },
+  "n_84": {
+   "text": "optzeci și patru",
+   "file": "n_84.mp3"
+  },
+  "n_85": {
+   "text": "optzeci și cinci",
+   "file": "n_85.mp3"
+  },
+  "n_86": {
+   "text": "optzeci și șase",
+   "file": "n_86.mp3"
+  },
+  "n_87": {
+   "text": "optzeci și șapte",
+   "file": "n_87.mp3"
+  },
+  "n_88": {
+   "text": "optzeci și opt",
+   "file": "n_88.mp3"
+  },
+  "n_89": {
+   "text": "optzeci și nouă",
+   "file": "n_89.mp3"
+  },
+  "n_90": {
+   "text": "nouăzeci",
+   "file": "n_90.mp3"
+  },
+  "n_91": {
+   "text": "nouăzeci și unu",
+   "file": "n_91.mp3"
+  },
+  "f_91": {
+   "text": "nouăzeci și una",
+   "file": "f_91.mp3"
+  },
+  "n_92": {
+   "text": "nouăzeci și doi",
+   "file": "n_92.mp3"
+  },
+  "f_92": {
+   "text": "nouăzeci și două",
+   "file": "f_92.mp3"
+  },
+  "n_93": {
+   "text": "nouăzeci și trei",
+   "file": "n_93.mp3"
+  },
+  "n_94": {
+   "text": "nouăzeci și patru",
+   "file": "n_94.mp3"
+  },
+  "n_95": {
+   "text": "nouăzeci și cinci",
+   "file": "n_95.mp3"
+  },
+  "n_96": {
+   "text": "nouăzeci și șase",
+   "file": "n_96.mp3"
+  },
+  "n_97": {
+   "text": "nouăzeci și șapte",
+   "file": "n_97.mp3"
+  },
+  "n_98": {
+   "text": "nouăzeci și opt",
+   "file": "n_98.mp3"
+  },
+  "n_99": {
+   "text": "nouăzeci și nouă",
+   "file": "n_99.mp3"
+  }
+ }
+}
