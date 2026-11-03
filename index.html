@@ -561,7 +561,7 @@ async function saveBox(thenNext){
     else{updateDoc(sref(sid),{boxes:apply(cur.boxes||[]),updatedAt:Date.now()});toast('Offline – se trimite când revine conexiunea');}
   }catch(e){toast('Eroare salvare cutie: '+(e.code||e.message));return;}
   $('mBox').classList.remove('show');editing=null;
-  if(thenNext){setTimeout(()=>{const n=nextBoxMissing(ed.no);if(n){editBox(n);speak('Cutia '+numRo(n.no));}else{toast('Toate cutiile au loturi complete');speak('Toate cutiile au loturi complete');focusScan();}},150);}
+  if(thenNext){setTimeout(()=>{const n=nextBoxMissing(ed.no);if(n){editBox(n);if(!wiz.resuming)speak('Cutia '+numRo(n.no));}else{toast('Toate cutiile au loturi complete');speak('Toate cutiile au loturi complete');focusScan();}},150);}
   else focusScan();
 }
 $('mbSave').onclick=()=>{if(wiz.active)wizStop(true);saveBox(false);};$('mbSaveNext').onclick=()=>{if(wiz.active)wizStop(true);saveBox(true);};
@@ -578,7 +578,7 @@ function renderLots(){
   $('lotOk').value='';$('lotNok').value='';$('lotNok').placeholder='0';$('lotOk').max=$('lotNok').max=rest>0?rest:0;
   ['lotOk','lotNok','lotBatch','lotMic','lotAdd'].forEach(i=>$(i).disabled=rest<=0);
 }
-function addLot(){
+function addLot(silent){
   const ok=parseInt($('lotOk').value)||0,nok=parseInt($('lotNok').value)||0,q=ok+nok,b=$('lotBatch').value.replace(/\D/g,'');
   if(ok<0||nok<0||q<=0){toast('Scrie bucățile OK și/sau NOK');$('lotOk').focus();return false;}
   const rest=editing.qty-lotSum(editing);
@@ -587,9 +587,10 @@ function addLot(){
   if(!/^\d{8}$/.test(b)){toast(b?`Batch-ul trebuie să aibă exact 8 cifre (acum: ${b.length})`:'Lipsește batch-ul');beep('bad');speak(b?`Batch incomplet, ${numRo(b.length)} cifre`:'Lipsește batch-ul');$('lotBatch').focus();return false;}
   const ex=editing.lots.find(l=>l.batch===b);if(ex){ex.ok=(parseInt(ex.ok)||0)+ok;ex.nok=(parseInt(ex.nok)||0)+nok;}else editing.lots.push({batch:b,ok,nok});
   $('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();
-  speak(`${bucRo(q)}${nok?`, ${nok===1?'una':numRoF(nok)} NOK`:''}, lot ${spellDigits(b)}. Adăugat.`);
-  const rest2=editing.qty-lotSum(editing);if(rest2===0)setTimeout(()=>speak('Cutie completă'),1500);
-  return true;
+  const conf=`${bucRo(q)}${nok?`, ${nok===1?'una':numRoF(nok)} NOK`:''}, lot ${spellDigits(b)}. Adăugat.`;
+  const rest2=editing.qty-lotSum(editing);
+  if(!silent){speak(conf);if(rest2===0)setTimeout(()=>speak('Cutie completă'),1500);}
+  return conf;
 }
 $('lotAdd').onclick=addLot;
 /* tastatură numerică proprie – scanerul USB/Bluetooth e văzut de telefon ca tastatură fizică și ascunde tastatura de pe ecran */
@@ -677,7 +678,7 @@ function wizNext(first){
   if(!wiz.active||!editing)return;
   const rest=editing.qty-lotSum(editing);
   if(rest<=0){wiz.active=false;$('lotMic').style.background='';$('lotMic').textContent='🎤';
-    speakThen('Cutie completă. Salvez și trec la următoarea.',()=>{if(!editing)return;const no=editing.no;saveBox(true);
+    speakThen('Cutie completă. Salvez și trec la următoarea.',()=>{if(!editing)return;const no=editing.no;wiz.resuming=true;saveBox(true);setTimeout(()=>wiz.resuming=false,1500);
       // după deschiderea următoarei cutii, continuă ghidarea
       setTimeout(()=>{if(editing&&editing.no!==no){speakThen(`Cutia ${numRo(editing.no)}, ${bucRo(editing.qty)}.`,()=>{wiz.active=true;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);});}},900);});
     return;}
@@ -710,8 +711,8 @@ function wizAsk(step,prefix){
     if(q>rest){speakThen(`Prea multe. Mai e loc doar pentru ${bucRo(rest)}.`,()=>{okEl.value='';nokEl.value='';wizAsk('ok');});return;}
     if(bEl.value.length===8&&!isNaN(parseInt(okEl.value))&&!isNaN(parseInt(nokEl.value))){
       if(q<=0){speakThen('Zero bucăți. Spune cantitățile.',()=>{okEl.value='';nokEl.value='';wizAsk('ok');});return;}
-      clearTimeout(autoT);if(addLot()){ // addLot rostește confirmarea; după ea continuăm
-        setTimeout(()=>{if(wiz.active)wizNext(false);},2600+120*8);}else{wizAsk(step);}
+      clearTimeout(autoT);const conf=addLot(true);
+      if(conf){speakThen(conf,()=>{if(wiz.active)wizNext(false);});}else{wizAsk(step);}
       return;}
     speakThen(msg.join(', ')+'.',()=>wizNext(false));
   });
