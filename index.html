@@ -236,6 +236,7 @@ const ADMIN_LOGIN='admin', ADMIN_FIRST_PIN='1234';
 /* ===================================================================== */
 
 const $=id=>document.getElementById(id);
+function strip(t){return String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtDate=ts=>new Date(ts).toLocaleString('ro-RO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
 function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',2600)}
@@ -357,12 +358,15 @@ let speakDone=null,speakDoneT=null;
 function speakThen(text,cb){ // rostește și apoi apelează cb (o singură dată), cu plasă de siguranță dacă evenimentul end nu vine
   clearTimeout(speakDoneT);speakDone=cb;const id=speakId+1;
   if(!cfg.voice||!('speechSynthesis' in window)){speak(text);setTimeout(()=>{if(speakDone===cb){speakDone=null;cb();}},300);return;}
-  speak(text);speakDoneT=setTimeout(()=>{if(speakDone===cb){speakDone=null;cb();}},600+70*text.length);
+  speak(text);speakDoneT=setTimeout(()=>{if(speakDone===cb){speakDone=null;cb();}},1200+80*text.length);
 }
 function speak(text){
   if(!cfg.voice)return;
   if(!('speechSynthesis' in window)){voiceStatus('⚠ Browserul nu suportă voce (text-to-speech)',true);return;}
-  const id=++speakId;let v=pickVoice()||(badVoices.size?fallbackVoice():null);
+  const id=++speakId;speakTTS(text,id);
+}
+function speakTTS(text,id){
+  let v=pickVoice()||(badVoices.size?fallbackVoice():null);
   const status=()=>{if(!v)voiceStatus('⚠ Nu există voce românească instalată – instaleaz-o din Setări › Text-to-speech (Română)',true);
     else if(isRo(v))voiceStatus((isOnline(v)?'🔊 Voce română online: ':'🔊 Voce română: ')+v.name,false);
     else voiceStatus('⚠ Vocea română online nu funcționează – folosesc vocea locală '+v.name+' (instalează pachetul de limbă română în Windows pentru voce corectă)',true);};
@@ -624,8 +628,7 @@ const WORD2DIG={zero:'0',unu:'1',una:'1',un:'1',o:'1',doi:'2','două':'2',doua:'
 function wordsToCode(t){let out='';t.toLowerCase().replace(/[.,;:!?]/g,' ').split(/\s+/).filter(Boolean).forEach(tok=>{
   if(/^\d+$/.test(tok))out+=tok;else if(WORD2DIG[tok]!==undefined)out+=WORD2DIG[tok];});return out.replace(/\D/g,'').slice(0,8);}
 /* ---- dictare ghidată: 🎤 o singură dată → „Câte OK?” → „Câte NOK?” → „Lotul?” → lot adăugat → următorul lot / următoarea cutie ---- */
-const strip=t=>t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
-const NUMW={zero:0,unu:1,una:1,un:1,o:1,doi:2,doua:2,trei:3,patru:4,cinci:5,sase:6,sapte:7,opt:8,noua:9,zece:10,unsprezece:11,doisprezece:12,douasprezece:12,treisprezece:13,paisprezece:14,patrusprezece:14,cincisprezece:15,saisprezece:16,saptesprezece:17,optsprezece:18,nouasprezece:19,douazeci:20,treizeci:30,patruzeci:40,cincizeci:50,saizeci:60,saptezeci:70,optzeci:80,nouazeci:90};
+const NUMW={zero:0,unu:1,una:1,un:1,unul:1,o:1,doi:2,doua:2,doi:2,'2':2,trei:3,patru:4,cinci:5,sase:6,sapte:7,opt:8,noua:9,zece:10,unsprezece:11,doisprezece:12,douasprezece:12,treisprezece:13,paisprezece:14,patrusprezece:14,cincisprezece:15,saisprezece:16,saptesprezece:17,optsprezece:18,nouasprezece:19,douazeci:20,treizeci:30,patruzeci:40,cincizeci:50,saizeci:60,saptezeci:70,optzeci:80,nouazeci:90};
 const isOkW=t=>/^(ok|okay|oke|okei|o\.k\.?|bune|bun|buna|intregi)$/.test(t);
 const isNokW=t=>/^(nok|noc|nock|nuk|enok|n\.o\.k\.?|rele|rea|rau|stricate|stricata|deteriorate|deteriorata|defecte|defecta|sparte|sparta)$/.test(t);
 const isLotW=t=>/^(lot|lotul|batch|batchul|bach|baci|serie|seria)$/.test(t);
@@ -656,12 +659,12 @@ function listen(){ // o ascultare → Promise<{text}|{error}>
   return new Promise(res=>{
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){res({error:'unsupported'});return;}
     try{speechSynthesis.cancel();}catch(e){}
-    rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=1;rec.continuous=false;
-    const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',interimTxt='',err=null,done=false,silenceT=null;
+    rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=false;
+    const mic=$('lotMic');recActive=true;let alts=[];mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',interimTxt='',err=null,done=false,silenceT=null;
     const finish=()=>{if(done)return;done=true;recActive=false;clearTimeout(silenceT);mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';
       const text=(finalTxt.trim()||interimTxt.trim()); // Safari (iPad/iPhone) dă uneori doar rezultate intermediare → le folosim
-      res(text?{text}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
-    rec.onresult=e=>{let interim='';for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=' '+r[0].transcript;}
+      res(text?{text,alts:[text,...alts.filter(a=>a&&a!==text)]}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
+    rec.onresult=e=>{let interim='';alts=[];for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=' '+r[0].transcript;for(let j=1;j<r.length;j++)alts.push(r[j].transcript);}
       if(interim.trim())interimTxt=interim;$('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interimTxt).trim()+'”';
       // după ce s-a auzit ceva și urmează 1,5 s de liniște, încheiem (Safari nu închide singur)
       clearTimeout(silenceT);silenceT=setTimeout(()=>{try{rec.stop();}catch(e){}setTimeout(finish,250);},1500);};
@@ -700,10 +703,20 @@ function wizAsk(step,prefix){
     if(!r.text){if(++wiz.retries<=2){wizAsk(step,'Nu am auzit. ');return;}wizStop(true);speak('Nu aud nimic. Oprit');return;}
     wiz.retries=0;const t=strip(r.text);
     if(/\b(stop|opreste|gata|renunta|anuleaza)\b/.test(t)){wizStop();return;}
-    const pr=parseLotSpeech(r.text);const okEl=$('lotOk'),nokEl=$('lotNok'),bEl=$('lotBatch');let msg=[];
-    if(pr.keywords){if(pr.ok!==null){okEl.value=String(pr.ok);msg.push(bucRo(pr.ok)+' OK');}if(pr.nok!==null){nokEl.value=String(pr.nok);msg.push((pr.nok===1?'una':numRoF(pr.nok))+' NOK');}if(pr.batch){bEl.value=pr.batch;updLotCount();msg.push('lot '+spellDigits(pr.batch));}}
-    else if(step==='batch'){const d=wordsToDigits(pr.rest);if(d){bEl.value=d;updLotCount();msg.push('lot '+spellDigits(d));}}
-    else{const n=wordsToNum(pr.rest);if(n!==null){(step==='ok'?okEl:nokEl).value=String(n);msg.push(step==='ok'?bucRo(n)+' OK':(n===1?'una':numRoF(n))+' NOK');}}
+    const okEl=$('lotOk'),nokEl=$('lotNok'),bEl=$('lotBatch');const restNow=editing.qty-lotSum(editing);
+    // încercăm toate variantele propuse de recunoaștere și o luăm pe prima care are sens pentru întrebarea curentă
+    const interpret=(text)=>{const pr=parseLotSpeech(text);const o={ok:null,nok:null,batch:null,msg:[]};
+      if(pr.keywords){if(pr.ok!==null){o.ok=pr.ok;o.msg.push(bucRo(pr.ok)+' OK');}if(pr.nok!==null){o.nok=pr.nok;o.msg.push((pr.nok===1?'una':numRoF(pr.nok))+' NOK');}if(pr.batch){o.batch=pr.batch;o.msg.push('lot '+spellDigits(pr.batch));}}
+      else if(step==='batch'){const d=wordsToDigits(pr.rest);if(d){o.batch=d;o.msg.push('lot '+spellDigits(d));}}
+      else{const n=wordsToNum(pr.rest);if(n!==null){if(step==='ok'){o.ok=n;o.msg.push(bucRo(n)+' OK');}else{o.nok=n;o.msg.push((n===1?'una':numRoF(n))+' NOK');}}}
+      if(!o.msg.length)return null;
+      // scor: la lot vrem 8 cifre; la cantități vrem un număr plauzibil (≤ rest)
+      o.good=(o.batch?o.batch.length===8:true)&&((o.ok??0)+(o.nok??0)<=restNow);return o;};
+    const cands=(r.alts&&r.alts.length?r.alts:[r.text]);let chosen=null,chosenText=r.text;
+    for(const t of cands){const o=interpret(t);if(o&&o.good){chosen=o;chosenText=t;break;}}
+    if(!chosen){for(const t of cands){const o=interpret(t);if(o){chosen=o;chosenText=t;break;}}}
+    let msg=[];if(chosen){msg=chosen.msg;if(chosen.ok!==null)okEl.value=String(chosen.ok);if(chosen.nok!==null)nokEl.value=String(chosen.nok);if(chosen.batch){bEl.value=chosen.batch;updLotCount();}}
+    r.text=chosenText;
     $('lotHeard').textContent='Am auzit: „'+r.text+'”'+(msg.length?'  →  '+msg.join(', '):'  →  nu am înțeles');
     if(!msg.length){if(++wiz.retries<=2){wizAsk(step,'Nu am înțeles. ');return;}wizStop(true);speak('Nu am înțeles. Oprit');return;}
     const q=(parseInt(okEl.value)||0)+(parseInt(nokEl.value)||0),rest=editing.qty-lotSum(editing);
