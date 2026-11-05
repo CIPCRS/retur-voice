@@ -192,6 +192,7 @@
   <div class="ean" id="mbEan"></div>
   <div id="mbInfo" class="muted" style="margin:6px 0 2px;font-size:14px"></div>
   <div class="switch"><span>Cutie plină (nu mai primește bucăți)</span><input type="checkbox" id="mbFull"></div>
+  <button class="btn sec" id="mbMinus" style="margin-top:8px">➖ Scoate o bucată (scanată greșit)</button>
   <h3 style="margin-top:14px">Loturi (batch)</h3>
   <div id="lotWarn" class="muted" style="margin-bottom:6px"></div>
   <table style="margin-bottom:8px"><thead><tr><th>Batch</th><th style="text-align:right">OK</th><th style="text-align:right">NOK</th><th></th></tr></thead><tbody id="lotRows"></tbody></table>
@@ -618,6 +619,20 @@ function editBox(b){
   $('mbTitle').textContent='Cutia '+editing.no+' · '+editing.qty+' buc scanate';$('mbEan').textContent='EAN '+editing.ean;$('mbInfo').innerHTML=editing.spgr?`SPGR <b style="color:var(--acc)">${esc(editing.spgr)}</b> · ${esc(editing.name)}`:'<span class="tag">EAN necunoscut în lista de articole</span> – cere admin-ului să actualizeze lista';$('mbFull').checked=editing.full;
   $('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();$('mBox').classList.add('show');setLotTarget('lotOk');setTimeout(()=>$('lotOk').focus({preventScroll:true}),80);
 }
+$('mbMinus').onclick=()=>{
+  if(!editing||!cur)return;const no=editing.no;
+  const cand=curScans.filter(x=>x.box===no&&(me.role==='admin'||x.by===me.name));const last=cand[cand.length-1];
+  if(!last){toast(curScans.some(x=>x.box===no)?'În această cutie sunt doar scanări ale altor colegi – doar admin le poate scoate':'Cutia nu are scanări');beep('bad');return;}
+  askPin(`Scoți o bucată din cutia ${no} (scanată de ${last.by||'?'} la ${new Date(last.ts).toLocaleTimeString('ro-RO')})? Rămân ${editing.qty-1} bucăți.`,async()=>{
+    const sid=cur.id;try{await deleteDoc(doc(db,'sessions',sid,'scans',last.id));}catch(e){toast('Eroare: '+(e.code||e.message));return;}
+    editing.qty=Math.max(0,editing.qty-1);$('mbTitle').textContent='Cutia '+editing.no+' · '+editing.qty+' buc scanate';
+    speak('Scoasă');toast(`Scanarea a fost scoasă – cutia ${no} are acum ${editing.qty} bucăți`);
+    if(editing.qty===0&&!editing.lots.length&&navigator.onLine){ // cutie goală fără loturi → o eliminăm, ca la „Anulează ultima”
+      try{await runTransaction(db,async tx=>{const d=(await tx.get(sref(sid))).data();const boxes=(d.boxes||[]).filter(b=>b.no!==no);const upd={boxes,updatedAt:Date.now()};if(no===d.nextBox-1)upd.nextBox=d.nextBox-1;tx.update(sref(sid),upd);});}catch(e){}
+      $('mBox').classList.remove('show');editing=null;focusScan();return;}
+    renderLots();
+  });
+};
 $('mbCancel').onclick=()=>{if(wiz.active)wizStop(true);$('mBox').classList.remove('show');editing=null;focusScan();};
 function nextBoxMissing(afterNo){const list=(cur.boxes||[]).filter(b=>lotState(b)!=='ok').sort((a,b)=>a.no-b.no);return list.find(b=>b.no>(afterNo||0))||list[0]||null;}
 $('btnNextLot').onclick=()=>{const b=nextBoxMissing(0);if(b)editBox(b);else toast('Toate cutiile au loturi complete');};
