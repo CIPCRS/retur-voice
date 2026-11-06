@@ -63,6 +63,10 @@
   footer{text-align:center;color:var(--muted);font-size:12px;padding:10px}
   .login{max-width:380px;margin:40px auto}
   .login h2{text-align:center;margin:0 0 6px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+  .tiles button{padding:18px 8px;font-size:18px;font-weight:700;border:2px solid var(--line,#ccd);border-radius:14px;background:var(--card,#fff);color:inherit;cursor:pointer;min-height:70px;word-break:break-word}
+  .tiles button:active{transform:scale(.97)}
+  .tiles button.admin{border-color:var(--acc,#2563eb)}
   .err{color:#fca5a5;font-size:14px;min-height:18px;margin-top:8px}
   .setup{background:#7f1d1d;color:#fecaca;padding:14px;border-radius:12px;font-size:14px;line-height:1.5}
 </style>
@@ -84,9 +88,17 @@
       <h2>Retur Marfă</h2>
       <p class="muted" style="text-align:center;margin:0 0 10px">Sortare retururi by voice</p>
       <div id="setupWarn" class="setup" style="display:none"></div>
-      <label>Utilizator</label><input id="lName" placeholder="ex. admin" autocomplete="username" autocapitalize="none">
-      <label>PIN</label><input id="lPin" type="password" inputmode="numeric" placeholder="4–6 cifre" autocomplete="current-password">
-      <button class="btn" id="btnLogin">Intră</button>
+      <div id="tilesWrap">
+        <p class="muted" style="margin:0 0 8px">Cine ești?</p>
+        <div class="tiles" id="userTiles"></div>
+        <button class="btn sec" id="btnOtherUser" style="margin-top:12px">Alt utilizator…</button>
+      </div>
+      <div id="formWrap" style="display:none">
+        <label>Utilizator</label><input id="lName" placeholder="ex. admin" autocomplete="username" autocapitalize="none">
+        <label>PIN</label><input id="lPin" type="password" inputmode="numeric" placeholder="4–6 cifre" autocomplete="current-password">
+        <button class="btn" id="btnLogin">Intră</button>
+        <button class="btn sec" id="btnBackTiles" style="display:none">← Înapoi la listă</button>
+      </div>
       <div class="err" id="lErr"></div>
     </div>
   </section>
@@ -322,10 +334,7 @@ let me=null; // {uid,name,role,active}
 let unsubSessions=null,unsubCur=null,unsubUsers=null,unsubCfg=null,unsubProd=null,pendingBootstrap=null;
 $('lName').value=localStorage.getItem('retur_last_user')||'';
 $('lPin').addEventListener('keydown',e=>{if(e.key==='Enter')$('btnLogin').click();});
-$('btnLogin').onclick=async()=>{
-  const name=$('lName').value.trim(),pin=$('lPin').value.trim();$('lErr').textContent='';
-  if(!name||!/^\d{4,6}$/.test(pin)){$('lErr').textContent='Scrie numele și un PIN de 4–6 cifre.';return;}
-  $('btnLogin').disabled=true;
+async function doLogin(name,pin){
   try{
     try{await signInWithEmailAndPassword(auth,emailOf(name),pwdOf(pin));}
     catch(e){
@@ -339,12 +348,36 @@ $('btnLogin').onclick=async()=>{
         }finally{done();pendingBootstrap=null;}
       } else throw e;
     }
-    localStorage.setItem('retur_last_user',name);$('lPin').value='';
+    localStorage.setItem('retur_last_user',name);$('lPin').value='';return null;
   }catch(e){
-    $('lErr').textContent=/invalid-credential|wrong-password|user-not-found|invalid-login/.test(e.code)?'Nume sau PIN greșit.':/network/.test(e.code)?'Fără conexiune la internet.':/too-many/.test(e.code)?'Prea multe încercări – așteaptă puțin.':'Eroare: '+e.code;
+    return /invalid-credential|wrong-password|user-not-found|invalid-login/.test(e.code)?'PIN greșit.':/network/.test(e.code)?'Fără conexiune la internet.':/too-many/.test(e.code)?'Prea multe încercări – așteaptă puțin.':'Eroare: '+e.code;
   }
-  $('btnLogin').disabled=false;
+}
+$('btnLogin').onclick=async()=>{
+  const name=$('lName').value.trim(),pin=$('lPin').value.trim();$('lErr').textContent='';
+  if(!name||!/^\d{4,6}$/.test(pin)){$('lErr').textContent='Scrie numele și un PIN de 4–6 cifre.';return;}
+  $('btnLogin').disabled=true;const err=await doLogin(name,pin);if(err)$('lErr').textContent=err;$('btnLogin').disabled=false;
 };
+/* ---- ecran de autentificare: casete cu utilizatori ---- */
+let logins=[];try{logins=JSON.parse(localStorage.getItem('retur_logins')||'[]');}catch(e){logins=[];}
+function renderTiles(){
+  const t=$('userTiles');t.innerHTML='';
+  const has=logins.length>0;$('tilesWrap').style.display=has?'':'none';$('formWrap').style.display=has?'none':'';$('btnBackTiles').style.display=has?'':'none';
+  logins.forEach(u=>{const b=document.createElement('button');b.type='button';b.textContent=u.name;if(u.role==='admin')b.className='admin';
+    b.onclick=()=>{$('lErr').textContent='';askPin('',async pin=>doLogin(u.name,pin),{title:'Bună, '+u.name,ok:'Intră',cls:'',ph:'PIN',min:4});};
+    t.appendChild(b);});
+}
+$('btnOtherUser').onclick=()=>{$('tilesWrap').style.display='none';$('formWrap').style.display='';$('btnBackTiles').style.display=logins.length?'':'none';setTimeout(()=>$('lName').focus(),50);};
+$('btnBackTiles').onclick=()=>{$('lErr').textContent='';renderTiles();};
+onSnapshot(doc(db,'config','logins'),s=>{if(s.exists()&&Array.isArray(s.data().users)){logins=s.data().users;localStorage.setItem('retur_logins',JSON.stringify(logins));}
+  if($('scrLogin').classList.contains('active'))renderTiles();},()=>{/* fără drept de citire (reguli vechi) – rămâne lista din cache */});
+renderTiles();
+// adminul ține la zi lista publică de nume (doar nume + rol, fără PIN)
+let unsubLoginsSync=null,lastLoginsJson=null;
+function syncLogins(){if(unsubLoginsSync)return;unsubLoginsSync=onSnapshot(collection(db,'users'),async snap=>{
+  const list=snap.docs.map(d=>d.data()).filter(u=>u.active).map(u=>({name:u.name,role:u.role})).sort((a,b)=>a.name.localeCompare(b.name));
+  const j=JSON.stringify(list);if(j===lastLoginsJson)return;lastLoginsJson=j;
+  try{await setDoc(doc(db,'config','logins'),{users:list,updatedAt:Date.now()});}catch(e){console.warn('logins sync',e.code);}},()=>{});}
 onAuthStateChanged(auth,async user=>{
   if(!user){me=null;teardown();show('scrLogin');return;}
   if(pendingBootstrap)await pendingBootstrap;   // așteaptă scrierea documentului admin la prima autentificare
@@ -356,16 +389,25 @@ onAuthStateChanged(auth,async user=>{
     $('btnUsers').style.display=me.role==='admin'?'':'none';
     $('btnSettings').style.display='';$('btnLogout').style.display='';
     $('sSendersWrap').style.display=me.role==='admin'?'':'none';
-    subscribe();show('scrHome');
+    subscribe();if(me.role==='admin')syncLogins();show('scrHome');
   }catch(e){$('lErr').textContent='Eroare la citirea contului: '+(e.code||e.message);await signOut(auth);}
 });
 $('btnLogout').onclick=async()=>{if(confirmTwice($('btnLogout'),'⎋','Sigur?')){await signOut(auth);}};
-function teardown(){[unsubSessions,unsubCur,unsubUsers,unsubCfg,unsubScans,unsubProd].forEach(u=>u&&u());unsubSessions=unsubCur=unsubUsers=unsubCfg=unsubScans=unsubProd=null;cur=null;curScans=[];
+function teardown(){[unsubSessions,unsubCur,unsubUsers,unsubCfg,unsubScans,unsubProd,unsubLoginsSync].forEach(u=>u&&u());unsubSessions=unsubCur=unsubUsers=unsubCfg=unsubScans=unsubProd=unsubLoginsSync=null;lastLoginsJson=null;if($('scrLogin'))renderTiles();cur=null;curScans=[];
   ['btnUsers','btnSettings','btnLogout'].forEach(i=>$(i).style.display='none');$('whoami').textContent='';}
 const DELETE_PIN='0000';   // PIN cerut la orice ștergere
-let pinCb=null;
-function askPin(msg,cb){pinCb=cb;$('pinMsg').textContent=msg||'';$('pinVal').value='';$('pinErr').textContent='';$('mPin').classList.add('show');setTimeout(()=>$('pinVal').focus({preventScroll:true}),60);}
-function pinSubmit(){const v=$('pinVal').value;if(v!==DELETE_PIN){$('pinErr').textContent='PIN greșit.';$('pinVal').value='';beep('bad');vibe([60,40,60]);return;}$('mPin').classList.remove('show');const cb=pinCb;pinCb=null;if(cb)cb();}
+let pinCb=null,pinOpts=null,pinBusy=false;
+// askPin(msg,cb) = confirmare ștergere cu PIN 0000; askPin(msg,async pin=>err,opts) = PIN generic (ex. login): cb întoarce text de eroare sau null
+function askPin(msg,cb,opts){pinCb=cb;pinOpts=opts||null;const o=pinOpts||{};
+  $('pinTitle').textContent=o.title||'Confirmă ștergerea';$('pinMsg').textContent=msg||'';$('pinVal').value='';$('pinVal').placeholder=o.ph||'PIN de ștergere';$('pinErr').textContent='';
+  $('pinOk').textContent=o.ok||'Șterge';$('pinOk').className='btn '+(o.cls!=null?o.cls:'err');
+  $('mPin').classList.add('show');setTimeout(()=>$('pinVal').focus({preventScroll:true}),60);}
+async function pinSubmit(){if(pinBusy)return;const v=$('pinVal').value;
+  if(!pinOpts){if(v!==DELETE_PIN){$('pinErr').textContent='PIN greșit.';$('pinVal').value='';beep('bad');vibe([60,40,60]);return;}$('mPin').classList.remove('show');const cb=pinCb;pinCb=null;if(cb)cb();return;}
+  if(v.length<(pinOpts.min||4)){$('pinErr').textContent='PIN prea scurt.';return;}
+  pinBusy=true;$('pinOk').disabled=true;let err=null;try{err=await pinCb(v);}catch(e){err='Eroare: '+(e.code||e.message);}pinBusy=false;$('pinOk').disabled=false;
+  if(err){$('pinErr').textContent=err;$('pinVal').value='';beep('bad');vibe([60,40,60]);return;}
+  $('mPin').classList.remove('show');pinCb=null;pinOpts=null;}
 $('pinOk').onclick=pinSubmit;$('pinCancel').onclick=()=>{$('mPin').classList.remove('show');pinCb=null;};
 $('pinVal').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();pinSubmit();}});
 $('pinKp').addEventListener('pointerdown',e=>{const b=e.target.closest('button');if(!b)return;e.preventDefault();const k=b.dataset.k,el=$('pinVal');
