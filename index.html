@@ -738,23 +738,27 @@ function parseLotSpeech(text){
     else seg.push(t);}
   r.rest=seg;return r;}
 let rec=null,recActive=false;
-function listen(){ // o ascultare → Promise<{text}|{error}>
+function listen(opts){ // o ascultare → Promise<{text,alts}|{error}>; opts: {silence, isComplete}
+  opts=opts||{};const silenceMs=opts.silence||1800,isComplete=opts.isComplete||(()=>false);
   return new Promise(res=>{
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){res({error:'unsupported'});return;}
     try{speechSynthesis.cancel();}catch(e){}
-    rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=false;
-    const mic=$('lotMic');recActive=true;let alts=[];mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',interimTxt='',err=null,done=false,silenceT=null;
-    const finish=()=>{if(done)return;done=true;recActive=false;clearTimeout(silenceT);mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';
-      const text=(finalTxt.trim()||interimTxt.trim()); // Safari (iPad/iPhone) dă uneori doar rezultate intermediare → le folosim
-      res(text?{text,alts:[text,...alts.filter(a=>a&&a!==text)]}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
-    rec.onresult=e=>{let interim='';alts=[];for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=' '+r[0].transcript;for(let j=1;j<r.length;j++)alts.push(r[j].transcript);}
-      if(interim.trim())interimTxt=interim;$('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interimTxt).trim()+'”';
-      // după ce s-a auzit ceva și urmează 1,5 s de liniște, încheiem (Safari nu închide singur)
-      clearTimeout(silenceT);silenceT=setTimeout(()=>{try{rec.stop();}catch(e){}setTimeout(finish,250);},1500);};
+    rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=true; // continuu: pauzele scurte nu închid microfonul
+    const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',interimTxt='',alts=[],err=null,done=false,silenceT=null;
+    const current=()=>(finalTxt.trim()||interimTxt.trim());
+    const finish=()=>{if(done)return;done=true;recActive=false;clearTimeout(silenceT);clearTimeout(hardT);try{rec.stop();}catch(e){}
+      mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';
+      const text=current();res(text?{text,alts:[text,...alts.filter(a=>a&&a!==text)]}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
+    const arm=()=>{clearTimeout(silenceT);const t=current();const ms=t&&isComplete(t)?700:silenceMs;silenceT=setTimeout(finish,ms);};
+    rec.onresult=e=>{let interim='';alts=[];finalTxt='';for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=' '+r[0].transcript;for(let j=1;j<r.length;j++)alts.push(r[j].transcript);}
+      if(interim.trim())interimTxt=interim;else if(finalTxt.trim())interimTxt='';
+      $('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interimTxt).trim()+'”';arm();};
     rec.onerror=e=>{err=e.error||'error';};
-    rec.onend=finish;
+    rec.onend=()=>{ // browserul a închis singur (ex. Safari) → încheiem cu ce avem
+      if(!done){if(current())finish();else setTimeout(finish,200);}};
+    const hardT=setTimeout(finish,opts.max||15000);
     try{rec.start();}catch(e){err='start';finish();}
-    setTimeout(()=>{if(!done){try{rec.stop();}catch(e){}setTimeout(finish,300);}},9000);
+    setTimeout(()=>{if(!done&&!current())finish();},7000); // nimic auzit în 7 s → „Nu am auzit”
   });
 }
 const wiz={active:false,step:null,retries:0};
@@ -780,7 +784,10 @@ function wizAsk(step,prefix){
   const q=step==='ok'?'Câte OK?':step==='nok'?'Câte NOK?':'Lotul?';
   $('lotHeard').textContent='🎤 '+q;
   speakThen((prefix||'')+q,async()=>{
-    if(!wiz.active)return;const r=await listen();if(!wiz.active)return;
+    if(!wiz.active)return;
+    const digitsOf=t=>{const pr=parseLotSpeech(t);return (pr.batch||wordsToDigits(pr.rest)).length;};
+    const r=await listen(step==='batch'?{silence:3000,max:30000,isComplete:t=>digitsOf(t)>=8}:{silence:2000,isComplete:t=>{const pr=parseLotSpeech(t);return pr.keywords||wordsToNum(pr.rest)!==null;}});
+    if(!wiz.active)return;
     if(r.error){if(r.error==='no-speech'||r.error==='aborted'){if(++wiz.retries<=2){wizAsk(step,'Nu am auzit. ');return;}wizStop(true);speak('Nu aud nimic. Oprit');return;}
       $('lotHeard').textContent='Eroare microfon: '+r.error+(r.error==='not-allowed'?' – permite accesul la microfon':r.error==='network'?' – recunoașterea vocală e blocată de rețea pe acest dispozitiv':'');wizStop(true);return;}
     if(!r.text){if(++wiz.retries<=2){wizAsk(step,'Nu am auzit. ');return;}wizStop(true);speak('Nu aud nimic. Oprit');return;}
