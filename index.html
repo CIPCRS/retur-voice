@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0f172a">
 <title>Retur Marfă – Sortare by Voice</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Retur Marfă">
 <style>
   :root{--bg:#0f172a;--panel:#1e293b;--panel2:#273449;--line:#334155;--txt:#f1f5f9;--muted:#94a3b8;--acc:#38bdf8;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444}
   *{box-sizing:border-box}
@@ -100,6 +107,8 @@
         <button class="btn sec" id="btnBackTiles" style="display:none">← Înapoi la listă</button>
       </div>
       <div class="err" id="lErr"></div>
+      <button class="btn sec" id="btnInstall" style="display:none">📲 Instalează ca aplicație</button>
+      <p class="muted" id="iosInstallHint" style="display:none;margin:10px 0 0;text-align:center">Pe iPhone/iPad: Safari → butonul <b>Partajare</b> ⎙ → <b>Adaugă pe ecranul principal</b>.</p>
     </div>
   </section>
 
@@ -186,10 +195,20 @@
   <label>Text pentru cutie nouă ({n} = numărul cutiei, rostit în cuvinte)</label><input id="sTplNew">
   <div id="sSendersWrap"><label>Listă expeditori (unul pe linie) – comună pentru toți</label><textarea id="sSenders" rows="5"></textarea>
     <h3 style="margin-top:18px">Vandabilitate (Sellable Batch)</h3>
-    <p class="muted" style="margin:0 0 6px">Prag = primele 3 cifre ale lotului (an + săptămână), ex. <b>509</b> = 2025, săpt. 09. Loturile cu valoare <b>mai mică</b> decât pragul nu sunt vandabile.</p>
-    <div class="row">
-      <div><label>Prag pentru shelf life ≤ 900 zile</label><input id="sSell900" inputmode="numeric" maxlength="3" placeholder="ex. 509"></div>
-      <div><label>Prag pentru shelf life = 1095 zile</label><input id="sSell1095" inputmode="numeric" maxlength="3" placeholder="ex. 440"></div>
+    <p class="muted" style="margin:0 0 6px">Prag = primele 3 cifre ale lotului (an + săptămână), ex. <b>509</b> = 2025, săpt. 09. Loturile cu valoare <b>mai mică</b> decât pragul nu sunt vandabile. Regula se aplică <b>tuturor sesiunilor</b> (și celor închise) deschise în perioada aleasă – raportul și ecranul se recalculează automat.</p>
+    <div id="sellRulesList"></div>
+    <div class="card" style="margin-top:8px;padding:10px">
+      <div class="row">
+        <div><label>Prag shelf life ≤ 900</label><input id="sSell900" inputmode="numeric" maxlength="3" placeholder="ex. 509"></div>
+        <div><label>Prag shelf life = 1095</label><input id="sSell1095" inputmode="numeric" maxlength="3" placeholder="ex. 440"></div>
+      </div>
+      <div class="row">
+        <div><label>Se aplică sesiunilor de la</label><input id="sSellFrom" type="date"></div>
+        <div><label>până la</label><input id="sSellTo" type="date"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="sSellNoEnd" style="width:auto;transform:scale(1.3)"> Nelimitat (fără dată de sfârșit)</label>
+      <button class="btn sec" id="btnSellAdd" style="margin-top:10px">＋ Adaugă regula</button>
+      <div class="err" id="sellErr"></div>
     </div>
     <h3 style="margin-top:18px">Master data (NART / EAN / shelf life)</h3>
     <div class="muted" id="prodInfo" style="margin-bottom:6px"></div>
@@ -317,16 +336,22 @@ let products={},productsMeta=null,mdRows=[];   // mdRows: [nart,desc,ean,sl,fam,
 const prodOf=ean=>products[ean]||null;
 function buildProducts(rows){const m={};for(const r of rows){const [nart,desc,ean,sl]=r;if(!ean)continue;let e=String(ean);if(cfg.upc&&/^\d{12}$/.test(e))e='0'+e;
   const it=m[e]||(m[e]={s:String(nart).replace(/\D/g,'').slice(0,5),d:desc||'',sl:[]});if(!it.d&&desc)it.d=desc;const n=parseInt(sl);if(n&&!it.sl.includes(n))it.sl.push(n);}return m;}
-let sellCfg={le900:null,eq1095:null};
+let sellRules=[];   // [{from:'YYYY-MM-DD'|null,to:'YYYY-MM-DD'|null,le900,eq1095,createdAt}] – regula se alege după data deschiderii sesiunii
+const dayKey=ts=>{const d=new Date(ts);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const fmtDay=k=>k?k.split('-').reverse().join('.'):'';
+function ruleFor(ts){if(ts==null)return null;const k=dayKey(ts);const hits=sellRules.filter(r=>(!r.from||k>=r.from)&&(!r.to||k<=r.to));if(!hits.length)return null;
+  return hits.sort((a,b)=>String(b.from||'').localeCompare(String(a.from||''))||(b.createdAt||0)-(a.createdAt||0))[0];}
+const curRule=()=>cur?ruleFor(cur.createdAt):null;
 /* lot = A SS Z xxxx : A = anul (5→2025), SS = săptămâna 01–54, Z = ziua 1–7 */
 function batchCheck(b){b=String(b||'');if(!/^\d{8}$/.test(b))return {ok:false,why:'trebuie 8 cifre'};const ww=parseInt(b.slice(1,3)),d=parseInt(b[3]);
   if(ww<1||ww>54)return {ok:false,why:`săptămâna ${b.slice(1,3)} nu există (01–54)`,say:`Săptămâna ${numRo(ww)} nu există`};
   if(d<1||d>7)return {ok:false,why:`ziua ${d} nu există (1–7)`,say:`Ziua ${numRo(d)} nu există`};return {ok:true,yww:parseInt(b.slice(0,3)),year:2020+parseInt(b[0]),week:ww,day:d};}
 /* vandabil: true / false / null (fără regulă: EAN necunoscut, shelf life în afara claselor sau prag nesetat) */
-function sellableFor(batch,ean){const pr=prodOf(ean);const c=batchCheck(batch);if(!pr||!pr.sl||!pr.sl.length||!c.ok)return null;
-  let verdict=null;for(const sl of pr.sl){let thr=null;if(sl<=900)thr=sellCfg.le900;else if(sl===1095)thr=sellCfg.eq1095;if(thr==null)continue;const ok=c.yww>=thr;verdict=verdict===null?ok:(verdict&&ok);} // cea mai strictă regulă dintre shelf life-urile EAN-ului
+function sellableFor(batch,ean,rule){if(rule===undefined)rule=curRule();if(!rule)return null;const pr=prodOf(ean);const c=batchCheck(batch);if(!pr||!pr.sl||!pr.sl.length||!c.ok)return null;
+  let verdict=null;for(const sl of pr.sl){let thr=null;if(sl<=900)thr=rule.le900;else if(sl===1095)thr=rule.eq1095;if(thr==null)continue;const ok=c.yww>=thr;verdict=verdict===null?ok:(verdict&&ok);} // cea mai strictă regulă dintre shelf life-urile EAN-ului
   return verdict;}
 const SELL_TXT={true:'Yes',false:'No',null:'n/a'};
+const lotSell=(l,b)=>sellableFor(l.batch,b.ean);   // vandabilitatea se calculează mereu după regula curentă (retroactiv)
 function prodInfoText(){return productsMeta?`${mdRows.length} NART-uri · ${Object.keys(products).length} EAN-uri · actualizat ${fmtDate(productsMeta.updatedAt)} de ${esc(productsMeta.by||'')}`:'Nicio master data încărcată – SPGR, descrierea și shelf life-ul vor lipsi.';}
 
 /* ================= AUTH ================= */
@@ -367,6 +392,8 @@ function renderTiles(){
     b.onclick=()=>{$('lErr').textContent='';askPin('',async pin=>doLogin(u.name,pin),{title:'Bună, '+u.name,ok:'Intră',cls:'',ph:'PIN',min:4});};
     t.appendChild(b);});
 }
+$('btnInstall').onclick=async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice;}catch(e){}installEvt=null;$('btnInstall').style.display='none';};
+(()=>{const ua=navigator.userAgent,ios=/iPad|iPhone|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1),standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;if(ios&&!standalone)$('iosInstallHint').style.display='';})();
 $('btnOtherUser').onclick=()=>{$('tilesWrap').style.display='none';$('formWrap').style.display='';$('btnBackTiles').style.display=logins.length?'':'none';setTimeout(()=>$('lName').focus(),50);};
 $('btnBackTiles').onclick=()=>{$('lErr').textContent='';renderTiles();};
 onSnapshot(doc(db,'config','logins'),s=>{if(s.exists()&&Array.isArray(s.data().users)){logins=s.data().users;localStorage.setItem('retur_logins',JSON.stringify(logins));}
@@ -420,9 +447,15 @@ function subscribe(){
   unsubSessions=onSnapshot(query(collection(db,'sessions'),orderBy('createdAt','desc'),limit(150)),snap=>{
     sessions=snap.docs.map(d=>Object.assign({id:d.id},d.data()));if($('scrHome').classList.contains('active'))renderHome();if($('mTrash').classList.contains('show'))renderTrash();
   },e=>toast('Eroare sesiuni: '+e.code));
-  unsubCfg=onSnapshot(doc(db,'config','app'),s=>{const d=s.exists()?s.data():{};senders=(d.senders&&d.senders.length)?d.senders:DEF_SENDERS;renderSenders();sellCfg={le900:d.sell&&d.sell.le900!=null?parseInt(d.sell.le900):null,eq1095:d.sell&&d.sell.eq1095!=null?parseInt(d.sell.eq1095):null};if(cur)renderScan();});
+  unsubCfg=onSnapshot(doc(db,'config','app'),s=>{const d=s.exists()?s.data():{};senders=(d.senders&&d.senders.length)?d.senders:DEF_SENDERS;renderSenders();if(Array.isArray(d.sellRules))sellRules=d.sellRules;else if(d.sell&&(d.sell.le900!=null||d.sell.eq1095!=null))sellRules=[{from:null,to:null,le900:d.sell.le900!=null?parseInt(d.sell.le900):null,eq1095:d.sell.eq1095!=null?parseInt(d.sell.eq1095):null,createdAt:0}];else sellRules=[];if($('mSettings').classList.contains('show'))renderSellRules();if(cur)renderScan();});
   unsubProd=onSnapshot(doc(db,'config','products'),s=>{if(s.exists()){const d=s.data();if(d.rows){mdRows=d.rows.map(x=>{if(Array.isArray(x))return x;const a=String(x).split('\t');return [a[0]||'',a[1]||'',a[2]||'',parseInt(a[3])||null,a[4]||'',a[5]||''];});products=buildProducts(mdRows);}else{products={};for(const [e,v] of Object.entries(d.items||{}))products[e]={s:v.s,d:v.d,sl:[]};mdRows=[];}productsMeta={updatedAt:d.updatedAt,by:d.by};}else{products={};mdRows=[];productsMeta=null;}$('prodInfo').innerHTML=prodInfoText();if(cur)renderScan();});
 }
+/* ---- PWA: service worker + instalare ---- */
+if('serviceWorker' in navigator){window.addEventListener('load',async()=>{try{const reg=await navigator.serviceWorker.register('sw.js');
+    reg.addEventListener('updatefound',()=>{const nw=reg.installing;nw&&nw.addEventListener('statechange',()=>{if(nw.state==='installed'&&navigator.serviceWorker.controller){toast('Versiune nouă descărcată – reîncarcă aplicația');}});});
+    setInterval(()=>reg.update().catch(()=>{}),60*60*1000);}catch(e){console.warn('sw',e);}});}
+let installEvt=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;const b=$('btnInstall');if(b)b.style.display='';});
+window.addEventListener('appinstalled',()=>{installEvt=null;const b=$('btnInstall');if(b)b.style.display='none';toast('Aplicația a fost instalată');});
 window.addEventListener('online',()=>$('netbar').style.display='none');
 window.addEventListener('offline',()=>$('netbar').style.display='block');
 if(!navigator.onLine)$('netbar').style.display='block';
@@ -638,7 +671,7 @@ function renderScan(hl){
   [...boxes].sort((a,b)=>b.no-a.no).forEach(b=>{
     const q=qtyOf(b.no),st=lotState(b);
     const tr=document.createElement('tr');if(b.full)tr.classList.add('full');if(b.no===hl)tr.classList.add('hl');
-    const lots=(b.lots&&b.lots.length)?'<br>🏷 '+b.lots.map(l=>esc(l.batch)+' ('+(parseInt(l.ok)||0)+' OK'+((parseInt(l.nok)||0)?' / <span style="color:#fca5a5">'+l.nok+' NOK</span>':'')+')'+(l.sell===false?' <span class="tag" style="background:var(--err);color:#fff">NEVANDABIL</span>':'')).join(', ')+(st==='bad'?' <span class="tag">'+lotSum(b)+'/'+q+'</span>':''):(st==='none'?'<br><span class="tag">fără lot</span>':'');
+    const lots=(b.lots&&b.lots.length)?'<br>🏷 '+b.lots.map(l=>esc(l.batch)+' ('+(parseInt(l.ok)||0)+' OK'+((parseInt(l.nok)||0)?' / <span style="color:#fca5a5">'+l.nok+' NOK</span>':'')+')'+(lotSell(l,b)===false?' <span class="tag" style="background:var(--err);color:#fff">NEVANDABIL</span>':'')).join(', ')+(st==='bad'?' <span class="tag">'+lotSum(b)+'/'+q+'</span>':''):(st==='none'?'<br><span class="tag">fără lot</span>':'');
     tr.innerHTML=`<td class="n">${b.no}${b.full?'<span class="tag">plină</span>':''}</td><td><div class="ean">${esc(b.ean)}${boxSpgr(b)?' <span style="color:var(--acc)">SPGR '+esc(boxSpgr(b))+'</span>':' <span class="tag">EAN necunoscut</span>'}</div><div class="name">${esc(boxDesc(b))}${lots}</div></td><td class="q">${q}</td><td style="width:34px;color:var(--muted)">›</td>`;
     tr.onclick=()=>editBox(b);tb.appendChild(tr);
   });
@@ -733,7 +766,7 @@ $('mbSave').onclick=()=>{if(wiz.active)wizStop(true);saveBox(false);};$('mbSaveN
 function renderLots(){
   const tb=$('lotRows');tb.innerHTML='';
   editing.lots.forEach((l,i)=>{const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="ean" style="letter-spacing:2px;font-size:16px">${esc(l.batch)}${l.sell===false?'<br><span class="tag" style="background:var(--err);color:#fff">NEVANDABIL</span>':l.sell===true?'<br><span class="tag" style="background:#14532d;color:#86efac">vandabil</span>':''}</td><td class="q">${parseInt(l.ok)||0}</td><td class="q" style="color:${(parseInt(l.nok)||0)?'#fca5a5':'inherit'}">${parseInt(l.nok)||0}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
+    tr.innerHTML=`<td class="ean" style="letter-spacing:2px;font-size:16px">${esc(l.batch)}${lotSell(l,editing)===false?'<br><span class="tag" style="background:var(--err);color:#fff">NEVANDABIL</span>':lotSell(l,editing)===true?'<br><span class="tag" style="background:#14532d;color:#86efac">vandabil</span>':''}</td><td class="q">${parseInt(l.ok)||0}</td><td class="q" style="color:${(parseInt(l.nok)||0)?'#fca5a5':'inherit'}">${parseInt(l.nok)||0}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
     tr.querySelector('button').onclick=()=>{askPin(`Ștergi lotul ${l.batch} (${parseInt(l.ok)||0} OK / ${parseInt(l.nok)||0} NOK)?`,()=>{editing.lots.splice(i,1);renderLots();});};tb.appendChild(tr);});
   const sum=lotSum(editing),w=$('lotWarn'),rest=editing.qty-sum;
   if(!editing.lots.length){w.textContent=`Niciun lot declarat pentru cele ${editing.qty} bucăți. Tastează batch / OK / NOK, sau apasă 🎤 o dată și răspunde la întrebări („Lotul?”, „Câte OK?”, „Câte NOK?”).`;w.style.color='';}
@@ -826,13 +859,25 @@ function listen(opts){ // o ascultare → Promise<{text,alts}|{error}>; opts: {s
     try{speechSynthesis.cancel();}catch(e){}
     rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=true; // continuu: pauzele scurte nu închid microfonul
     const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',interimTxt='',alts=[],err=null,done=false,silenceT=null;
+    let finals=[],seenIdx={},evSeq=0;const norm=x=>String(x||'').trim().replace(/\s+/g,' ').toLowerCase();
     const current=()=>(finalTxt.trim()||interimTxt.trim());
     const finish=()=>{if(done)return;done=true;recActive=false;clearTimeout(silenceT);clearTimeout(hardT);try{rec.stop();}catch(e){}
       mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';
       const text=current();res(text?{text,alts:[text,...alts.filter(a=>a&&a!==text)]}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
     const arm=()=>{clearTimeout(silenceT);const t=current();const ms=t&&isComplete(t)?700:silenceMs;silenceT=setTimeout(finish,ms);};
-    rec.onresult=e=>{let interim='';alts=[];finalTxt='';for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finalTxt+=' '+r[0].transcript;else interim+=' '+r[0].transcript;for(let j=1;j<r.length;j++)alts.push(r[j].transcript);}
-      if(interim.trim())interimTxt=interim;else if(finalTxt.trim())interimTxt='';
+    rec.onresult=e=>{ // Chrome Android (mod continuu) repetă același segment de 2–3 ori, la aceleași indexuri sau cumulat → păstrăm fiecare index o singură dată și aruncăm dublurile emise în același moment
+      const now=Date.now();let interim='';alts=[];evSeq++;
+      for(let i=0;i<e.results.length;i++){const r=e.results[i];const t=norm(r[0].transcript);for(let j=1;j<r.length;j++)alts.push(r[j].transcript);
+        if(!r.isFinal){if(i>=(e.resultIndex||0))interim+=' '+t;continue;}
+        if(seenIdx[i]||!t)continue;seenIdx[i]=true;
+        const prev=finals[finals.length-1],all=norm(finals.map(f=>f.t).join(' '));
+        if(prev&&prev.t===t&&(prev.ev===evSeq||now-prev.at<250))continue;                 // dublură: același text, în același eveniment / același moment (o cifră repetată de om vine la >250 ms)
+        if(all&&t.startsWith(all)&&t.length>all.length){finals=[{t,at:now}];continue;}      // transcript cumulativ (conține tot ce era deja)
+        if(all&&t.length>=3&&all.endsWith(t)&&prev&&(prev.ev===evSeq||now-prev.at<250))continue;   // segment multi-cifră repetat imediat
+        finals.push({t,at:now,ev:evSeq});}
+      finalTxt=finals.map(f=>f.t).join(' ');interim=norm(interim);
+      const last=finals[finals.length-1];if(interim&&last&&interim===last.t&&(last.ev===evSeq||now-last.at<250))interim='';   // interimul re-emis după finalizare
+      if(interim)interimTxt=interim;else if(finalTxt)interimTxt='';
       $('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interimTxt).trim()+'”';arm();};
     rec.onerror=e=>{err=e.error||'error';};
     rec.onend=()=>{ // browserul a închis singur (ex. Safari) → încheiem cu ce avem
@@ -919,7 +964,7 @@ $('btnClose').onclick=async()=>{
   const bad=(cur.boxes||[]).filter(b=>lotState(b)!=='ok');
   if(bad.length&&!btn.dataset.arm){toast('Atenție: cutiile '+bad.map(b=>b.no).join(', ')+' nu au loturi complete');beep('bad');}
   if(btn.dataset.arm){delete btn.dataset.arm;
-    const totals={pieces:curScans.length,boxes:(cur.boxes||[]).length,nok:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0),unsellable:(cur.boxes||[]).reduce((a,b)=>a+(b.lots||[]).filter(l=>l.sell===false).reduce((x,l)=>x+lotQty(l),0),0)};
+    const totals={pieces:curScans.length,boxes:(cur.boxes||[]).length,nok:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0),unsellable:(cur.boxes||[]).reduce((a,b)=>a+(b.lots||[]).filter(l=>lotSell(l,b)===false).reduce((x,l)=>x+lotQty(l),0),0)};
     updateDoc(sref(sid),{closedAt:Date.now(),closedByName:me.name,totals,updatedAt:Date.now()}).catch(e=>toast('Eroare: '+e.code));
     speak('Sesiune închisă');toast('Sesiune închisă');setBig('','Sesiune închisă','✔',`${totals.boxes} cutii · ${totals.pieces} buc · ${totals.nok} NOK`);return;}
   btn.dataset.arm='1';btn.textContent='Apasă din nou pentru confirmare';setTimeout(()=>{delete btn.dataset.arm;renderScan();},3000);
@@ -950,7 +995,7 @@ function csvLine(a){return a.map(v=>{v=String(v??'');return /[;"\n]/.test(v)?'"'
 function buildReport(){
   // Raport: Cutia | SPGR | EAN | Nart Description | Quantity | Batch | Condition — un rând per cutie + batch + condiție (OK/NOK)
   const rows=[];const boxes=[...(cur.boxes||[])].sort((a,b)=>a.no-b.no);
-  const push=(b,qty,batch,cond,sell)=>{if(qty>0)rows.push({'Box':b.no,'SPGR':boxSpgr(b),'EAN':b.ean,'Nart Description':boxDesc(b),'Quantity':qty,'Batch':batch,'Condition':cond,'Sellable Batch':batch?SELL_TXT[sell===undefined?sellableFor(batch,b.ean):sell]:''});};
+  const push=(b,qty,batch,cond,sell)=>{if(qty>0)rows.push({'Box':b.no,'SPGR':boxSpgr(b),'EAN':b.ean,'Nart Description':boxDesc(b),'Quantity':qty,'Batch':batch,'Condition':cond,'Sellable Batch':batch?SELL_TXT[sellableFor(batch,b.ean)]:''});};
   boxes.forEach(b=>{const lots=b.lots||[];if(!lots.length){push(b,qtyOf(b.no),'','');return;}
     lots.forEach(l=>{push(b,parseInt(l.ok)||0,l.batch,'OK',l.sell);push(b,parseInt(l.nok)||0,l.batch,'NOK',l.sell);});
     const diff=qtyOf(b.no)-lotSum(b);if(diff>0)push(b,diff,'','');});
@@ -964,11 +1009,11 @@ $('btnExport').onclick=()=>{
     const wb=XLSX.utils.book_new();
     const ws1=XLSX.utils.json_to_sheet(report,{header:['Box','SPGR','EAN','Nart Description','Quantity','Batch','Condition','Sellable Batch']});
     ws1['!cols']=[{wch:7},{wch:8},{wch:16},{wch:40},{wch:10},{wch:12},{wch:10},{wch:14}];XLSX.utils.book_append_sheet(wb,ws1,'Report');
-    const info=[{Field:'Sender',Value:cur.sender},{Field:'Session date',Value:fmtDate(cur.createdAt)},{Field:'Pallets',Value:cur.pallets},{Field:'Reference',Value:cur.ref||''},{Field:'Opened by',Value:cur.createdByName||''},{Field:'Total pieces scanned',Value:curScans.length},{Field:'Total boxes',Value:(cur.boxes||[]).length},{Field:'Total NOK',Value:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0)},{Field:'Total not sellable',Value:(cur.boxes||[]).reduce((a,b)=>a+(b.lots||[]).filter(l=>l.sell===false).reduce((x,l)=>x+lotQty(l),0),0)},{Field:'Sellable threshold (shelf life <= 900)',Value:sellCfg.le900??''},{Field:'Sellable threshold (shelf life = 1095)',Value:sellCfg.eq1095??''}];
+    const info=[{Field:'Sender',Value:cur.sender},{Field:'Session date',Value:fmtDate(cur.createdAt)},{Field:'Pallets',Value:cur.pallets},{Field:'Reference',Value:cur.ref||''},{Field:'Opened by',Value:cur.createdByName||''},{Field:'Total pieces scanned',Value:curScans.length},{Field:'Total boxes',Value:(cur.boxes||[]).length},{Field:'Total NOK',Value:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0)},{Field:'Total not sellable',Value:(cur.boxes||[]).reduce((a,b)=>a+(b.lots||[]).filter(l=>lotSell(l,b)===false).reduce((x,l)=>x+lotQty(l),0),0)},{Field:'Sellable threshold (shelf life <= 900)',Value:(curRule()||{}).le900??''},{Field:'Sellable threshold (shelf life = 1095)',Value:(curRule()||{}).eq1095??''},{Field:'Sellable rule period',Value:curRule()?((curRule().from?fmtDay(curRule().from):'…')+' – '+(curRule().to?fmtDay(curRule().to):'unlimited')):'no rule'}];
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(info),'Session');
     const cut=[];[...(cur.boxes||[])].sort((a,b)=>a.no-b.no).forEach(b=>{const base={Box:b.no,SPGR:boxSpgr(b),EAN:b.ean,'Nart Description':boxDesc(b),'Pieces scanned':qtyOf(b.no),'Box full':b.full?'yes':'no'};
       const lots=b.lots||[];if(!lots.length){cut.push(Object.assign({},base,{Batch:'',OK:'',NOK:''}));return;}
-      lots.forEach(l=>cut.push(Object.assign({},base,{Batch:l.batch,OK:parseInt(l.ok)||0,NOK:parseInt(l.nok)||0,'Sellable Batch':SELL_TXT[l.sell===undefined?sellableFor(l.batch,b.ean):l.sell]})));});
+      lots.forEach(l=>cut.push(Object.assign({},base,{Batch:l.batch,OK:parseInt(l.ok)||0,NOK:parseInt(l.nok)||0,'Sellable Batch':SELL_TXT[lotSell(l,b)]})));});
     const wsC=XLSX.utils.json_to_sheet(cut,{header:['Box','SPGR','EAN','Nart Description','Pieces scanned','Batch','OK','NOK','Sellable Batch','Box full']});wsC['!cols']=[{wch:7},{wch:8},{wch:16},{wch:40},{wch:14},{wch:12},{wch:6},{wch:6},{wch:14},{wch:11}];
     XLSX.utils.book_append_sheet(wb,wsC,'Boxes');
     const jur=curScans.map(x=>({Time:new Date(x.ts).toLocaleString('ro-RO'),EAN:x.ean,Box:x.box,User:x.by||''}));
@@ -1017,7 +1062,7 @@ $('btnMdDownload').onclick=()=>{
   const data=mdRows.length?mdRows.map(r=>({NART:r[0],DESCRIPTION:r[1],EAN:r[2],'SHELF LIFE':r[3]??'','FAMILY GROUP':r[4]||'',EUCERIN:r[5]||'',SPGR:String(r[0]).slice(0,5)})):Object.entries(products).map(([e,v])=>({NART:'',DESCRIPTION:v.d,EAN:e,'SHELF LIFE':'','FAMILY GROUP':'',EUCERIN:'',SPGR:v.s}));
   const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(data,{header:[...MD_HEAD,'SPGR']});ws['!cols']=[{wch:14},{wch:40},{wch:16},{wch:11},{wch:13},{wch:9},{wch:7}];
   XLSX.utils.book_append_sheet(wb,ws,'Master data');
-  const thr=[{Setting:'Sellable threshold (shelf life <= 900)',Value:sellCfg.le900??''},{Setting:'Sellable threshold (shelf life = 1095)',Value:sellCfg.eq1095??''}];
+  const thr=sellRules.length?sellRules.map((r,i)=>({Setting:'Sellable rule '+(i+1),Value:`from ${r.from?fmtDay(r.from):'…'} to ${r.to?fmtDay(r.to):'unlimited'}: <=900 → ${r.le900??''}, =1095 → ${r.eq1095??''}`})):[{Setting:'Sellable rule',Value:'none'}];
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(thr),'Settings');
   XLSX.writeFile(wb,`MasterData_${new Date().toISOString().slice(0,10)}.xlsx`);
 };
@@ -1065,14 +1110,25 @@ $('btnAddUser').onclick=async()=>{
 
 /* ================= SETTINGS + PIN ================= */
 $('btnSettings').onclick=()=>{$('sVoice').checked=cfg.voice;$('sClips').checked=cfg.clips!==false;$('sBeep').checked=cfg.beep;$('sVibe').checked=cfg.vibe;$('sUpc').checked=cfg.upc;
-  $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';$('prodInfo').innerHTML=prodInfoText();$('prodStatus').textContent='';$('sSell900').value=sellCfg.le900??'';$('sSell1095').value=sellCfg.eq1095??'';loadVoices();$('mSettings').classList.add('show');};
+  $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';$('prodInfo').innerHTML=prodInfoText();$('prodStatus').textContent='';$('sSell900').value='';$('sSell1095').value='';$('sSellFrom').value='';$('sSellTo').value='';$('sSellNoEnd').checked=true;$('sSellTo').disabled=true;$('sellErr').textContent='';renderSellRules();loadVoices();$('mSettings').classList.add('show');};
+function renderSellRules(){const el=$('sellRulesList');if(!el)return;el.innerHTML='';if(!sellRules.length){el.innerHTML='<p class="muted" style="margin:6px 0">Nicio regulă – coloana Sellable Batch rămâne n/a.</p>';return;}
+  [...sellRules].sort((a,b)=>String(a.from||'').localeCompare(String(b.from||''))).forEach(r=>{const d=document.createElement('div');d.className='sess';d.style.cursor='default';
+    d.innerHTML=`<div class="t"><b>${r.from?fmtDay(r.from):'de la început'} → ${r.to?fmtDay(r.to):'nelimitat'}</b><br><span class="muted">≤ 900 zile: <b>${r.le900??'–'}</b> · = 1095 zile: <b>${r.eq1095??'–'}</b></span></div>${me&&me.role==='admin'?'<button class="iconbtn">✕</button>':''}`;
+    const b=d.querySelector('button');if(b)b.onclick=()=>askPin(`Ștergi regula ${r.from?fmtDay(r.from):'de la început'} → ${r.to?fmtDay(r.to):'nelimitat'}?`,async()=>{const rest=sellRules.filter(x=>x!==r);try{await setDoc(doc(db,'config','app'),{sellRules:rest},{merge:true});toast('Regulă ștearsă');}catch(e){toast('Eroare: '+e.code);}});
+    el.appendChild(d);});}
+$('sSellNoEnd').onchange=()=>{$('sSellTo').disabled=$('sSellNoEnd').checked;if($('sSellNoEnd').checked)$('sSellTo').value='';};
+$('sSellTo').oninput=()=>{if($('sSellTo').value)$('sSellNoEnd').checked=false;};
+$('btnSellAdd').onclick=async()=>{if(!me||me.role!=='admin')return;$('sellErr').textContent='';const t9=$('sSell900').value.replace(/\D/g,''),t1=$('sSell1095').value.replace(/\D/g,''),from=$('sSellFrom').value||null,to=$('sSellNoEnd').checked?null:($('sSellTo').value||null);
+  if(!t9&&!t1){$('sellErr').textContent='Completează cel puțin un prag.';return;}if((t9&&t9.length!==3)||(t1&&t1.length!==3)){$('sellErr').textContent='Pragul are 3 cifre (ex. 509).';return;}
+  if(!to&&!$('sSellNoEnd').checked){$('sellErr').textContent='Alege data de sfârșit sau bifează „Nelimitat”.';return;}if(from&&to&&to<from){$('sellErr').textContent='Data de sfârșit e înaintea celei de început.';return;}
+  const r={from,to,le900:t9?parseInt(t9):null,eq1095:t1?parseInt(t1):null,createdAt:Date.now(),by:me.name};$('btnSellAdd').disabled=true;
+  try{await setDoc(doc(db,'config','app'),{sellRules:[...sellRules,r]},{merge:true});toast('Regulă adăugată – se aplică și sesiunilor existente din perioadă');$('sSell900').value='';$('sSell1095').value='';$('sSellFrom').value='';$('sSellTo').value='';}catch(e){$('sellErr').textContent='Eroare: '+e.code;}$('btnSellAdd').disabled=false;};
 $('sRate').oninput=()=>$('sRateV').textContent=$('sRate').value;
 $('btnCloseSettings').onclick=()=>{$('mSettings').classList.remove('show');focusScan();};
 $('btnSaveSettings').onclick=async()=>{cfg.voice=$('sVoice').checked;cfg.clips=$('sClips').checked;cfg.beep=$('sBeep').checked;cfg.vibe=$('sVibe').checked;cfg.upc=$('sUpc').checked;
   cfg.rate=parseFloat($('sRate').value);cfg.voiceName=$('sVoiceName').value;badVoices.clear();cfg.tplSame=$('sTplSame').value||'{n}';cfg.tplNew=$('sTplNew').value||'Cutie nouă {n}';saveCfg();
-  if(me&&me.role==='admin'){const list=$('sSenders').value.split('\n').map(s=>s.trim()).filter(Boolean);const t9=$('sSell900').value.replace(/\D/g,''),t1=$('sSell1095').value.replace(/\D/g,'');
-    if((t9&&t9.length!==3)||(t1&&t1.length!==3)){toast('Pragul de vandabilitate are 3 cifre (ex. 509)');return;}
-    try{await setDoc(doc(db,'config','app'),{senders:list.length?list:DEF_SENDERS,sell:{le900:t9?parseInt(t9):null,eq1095:t1?parseInt(t1):null}},{merge:true});}catch(e){toast('Eroare setări: '+e.code);}}
+  if(me&&me.role==='admin'){const list=$('sSenders').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    try{await setDoc(doc(db,'config','app'),{senders:list.length?list:DEF_SENDERS},{merge:true});}catch(e){toast('Eroare setări: '+e.code);}}
   $('mSettings').classList.remove('show');toast('Setări salvate');sayBox(cfg.tplSame,3);focusScan();};
 $('btnPin').onclick=async()=>{
   const o=$('pOld').value.trim(),n=$('pNew').value.trim();$('pErr').textContent='';
