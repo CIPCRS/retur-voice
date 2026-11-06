@@ -1,7 +1,7 @@
 /* Retur Marfă – service worker: instalare ca aplicație + cache pentru încărcare rapidă/offline.
    index.html: rețea mai întâi (ca să prindă actualizările), cache dacă nu e net.
    restul (SDK Firebase, SheetJS, clipuri audio, iconițe): cache mai întâi, se completează din rețea. */
-const VER='rv-2026-11-06e';
+const VER='rv-2026-11-06f';
 const CORE=['./','./index.html','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(VER).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==VER).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});

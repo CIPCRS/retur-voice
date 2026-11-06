@@ -179,7 +179,7 @@
     <p class="muted">Un utilizator dezactivat nu mai poate intra. PIN-ul poate fi schimbat doar de utilizatorul însuși (din ⚙); dacă l-a uitat, dezactivează-i contul și creează-i unul nou cu alt nume.</p>
   </section>
 </main>
-<footer>Retur Marfă · sortare by voice · <span id="whoami"></span> · <span class="muted">v2026-11-06e</span></footer>
+<footer>Retur Marfă · sortare by voice · <span id="whoami"></span> · <span class="muted">v2026-11-06f</span></footer>
 
 <!-- Settings modal -->
 <div class="modal" id="mSettings"><div class="box">
@@ -874,7 +874,7 @@ function listen(opts){ // o ascultare → Promise<{text,alts}|{error}>; opts: {s
       const g=runs.every(r=>r.n%3===0)?3:runs.every(r=>r.n%2===0)?2:0;if(!g)return txt;const out=[];runs.forEach(r=>{for(let i=0;i<r.n/g;i++)out.push(r.w);});return out.join(' ');};
     const raw=()=>(carry+' '+(finalTxt.trim()||interimTxt.trim())).trim();
     const current=()=>collapseRuns(raw());
-    const finish=()=>{if(done)return;done=true;recActive=false;clearTimeout(silenceT);clearTimeout(hardT);clearTimeout(quietT);try{rec.stop();}catch(e){}
+    const finish=()=>{if(done)return;done=true;recActive=false;lastRecEnd=Date.now();clearTimeout(silenceT);clearTimeout(hardT);clearTimeout(quietT);try{rec.stop();}catch(e){}
       mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';
       const text=current();recLog.push(`rezultat: "${text}"${err?' err='+err:''}`);res(text?{text,alts:[text,...alts.filter(a=>a&&a!==text)]}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
     const arm=()=>{clearTimeout(silenceT);const t=current();const ms=t&&isComplete(t)?700:silenceMs;silenceT=setTimeout(finish,ms);};
@@ -906,15 +906,16 @@ function listen(opts){ // o ascultare → Promise<{text,alts}|{error}>; opts: {s
         if(current())finish();else setTimeout(finish,200);};
       r0.start();}
     const hardT=setTimeout(finish,opts.max||15000);
-    try{startRec();}catch(e){err='start';finish();}
+    const gap=Math.max(0,350-(Date.now()-lastRecEnd));   // Android: o pauză scurtă între oprirea și pornirea microfonului evită erori „network”/„aborted”
+    setTimeout(()=>{if(done)return;try{startRec();}catch(e){err='start';finish();}},gap);
     const quietT=setTimeout(()=>{if(!done&&!current())finish();},7000); // nimic auzit în 7 s → „Nu am auzit”
   });
 }
-let recLog=[];
+let recLog=[],lastRecEnd=0;
 $('btnRecLogCopy').onclick=async()=>{const t=recLog.join('\n');$('recLogTxt').value=t;try{await navigator.clipboard.writeText(t);toast('Jurnal copiat');}catch(e){$('recLogTxt').select();toast('Selectează și copiază textul');}};
 const wiz={active:false,step:null,retries:0};
 function wizStop(silent){wiz.active=false;wiz.step=null;try{if(rec)rec.abort?rec.abort():rec.stop();}catch(e){}const mic=$('lotMic');mic.style.background='';mic.textContent='🎤';if(!silent){speak('Oprit');$('lotHeard').textContent='Dictare oprită.';}}
-function wizStart(){ if(!editing)return;wiz.active=true;wiz.retries=0;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);}
+function wizStart(){ if(!editing)return;wiz.active=true;wiz.retries=0;wiz.netRetries=0;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);}
 function wizNext(first){
   if(!wiz.active||!editing)return;
   const rest=editing.qty-lotSum(editing);
@@ -940,7 +941,9 @@ function wizAsk(step,prefix){
     const r=await listen(step==='batch'?{silence:1500,max:20000,isComplete:t=>digitsOf(t)>=8}:{silence:1500,isComplete:t=>{const pr=parseLotSpeech(t);return pr.keywords||wordsToNum(pr.rest)!==null;}});
     if(!wiz.active)return;
     if(r.error){if(r.error==='no-speech'||r.error==='aborted'){if(++wiz.retries<=2){wizAsk(step,'Nu am auzit. ');return;}wizStop(true);speak('Nu aud nimic. Oprit');return;}
-      $('lotHeard').textContent='Eroare microfon: '+r.error+(r.error==='not-allowed'?' – permite accesul la microfon':r.error==='network'?' – recunoașterea vocală e blocată de rețea pe acest dispozitiv':'');wizStop(true);return;}
+      if(r.error==='network'&&++wiz.netRetries<=2){$('lotHeard').textContent='Eroare rețea la recunoaștere – reîncerc…';setTimeout(()=>{if(wiz.active)wizAsk(step);},900);return;} // pe Android apare uneori tranzitoriu la repornirea microfonului
+      $('lotHeard').textContent='Eroare microfon: '+r.error+(r.error==='not-allowed'?' – permite accesul la microfon':r.error==='network'?' – serviciul de recunoaștere vocală (Google) nu e accesibil: verifică internetul; Wi-Fi-ul firmei îl poate bloca – încearcă pe date mobile':'');wizStop(true);return;}
+    wiz.netRetries=0;
     if(!r.text){if(++wiz.retries<=2){wizAsk(step,'Nu am auzit. ');return;}wizStop(true);speak('Nu aud nimic. Oprit');return;}
     wiz.retries=0;const t=strip(r.text);
     if(/\b(stop|opreste|gata|renunta|anuleaza)\b/.test(t)){wizStop();return;}
