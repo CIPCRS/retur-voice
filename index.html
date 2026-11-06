@@ -104,7 +104,7 @@
       <button class="btn" id="btnStart">▶ Pornește sesiunea</button>
     </div>
     <div class="card" style="padding:0">
-      <div style="padding:12px 14px 6px;display:flex;align-items:center"><b style="flex:1">Sesiuni</b><span class="muted" id="sessCount"></span></div>
+      <div style="padding:12px 14px 6px;display:flex;align-items:center;gap:8px"><b style="flex:1">Sesiuni</b><span class="muted" id="sessCount"></span><button class="iconbtn" id="btnTrash" style="display:none">🗑 Șterse (0)</button></div>
       <div id="sessList"><p class="muted" style="padding:14px;text-align:center">Se încarcă…</p></div>
     </div>
   </section>
@@ -230,6 +230,13 @@
   <button class="btn sec" id="mbCancel">Renunță</button>
 </div></div>
 
+<!-- Coș sesiuni șterse -->
+<div class="modal" id="mTrash"><div class="box">
+  <h3>Sesiuni șterse</h3>
+  <p class="muted" style="margin:4px 0 10px">Sesiunile șterse rămân aici până le ștergi definitiv. Poți restaura oricare.</p>
+  <div id="trashList"></div>
+  <button class="btn sec" id="trashClose" style="margin-top:14px">Închide</button>
+</div></div>
 <!-- PIN de ștergere -->
 <div class="modal" id="mPin"><div class="box" style="max-width:420px;margin:0 auto">
   <h3 id="pinTitle">Confirmă ștergerea</h3>
@@ -253,7 +260,7 @@ import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
          updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentSingleTabManager, doc, collection, setDoc, getDoc, updateDoc, deleteDoc, addDoc,
-         onSnapshot, query, orderBy, limit, runTransaction, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+         onSnapshot, query, orderBy, limit, runTransaction, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 /* ================= CONFIG FIREBASE – COMPLETEAZĂ AICI ================= */
 const firebaseConfig = {
@@ -369,7 +376,7 @@ function confirmTwice(btn,label,ask){if(btn.dataset.arm){delete btn.dataset.arm;
 let sessions=[];
 function subscribe(){
   unsubSessions=onSnapshot(query(collection(db,'sessions'),orderBy('createdAt','desc'),limit(150)),snap=>{
-    sessions=snap.docs.map(d=>Object.assign({id:d.id},d.data()));if($('scrHome').classList.contains('active'))renderHome();
+    sessions=snap.docs.map(d=>Object.assign({id:d.id},d.data()));if($('scrHome').classList.contains('active'))renderHome();if($('mTrash').classList.contains('show'))renderTrash();
   },e=>toast('Eroare sesiuni: '+e.code));
   unsubCfg=onSnapshot(doc(db,'config','app'),s=>{const d=s.exists()?s.data():{};senders=(d.senders&&d.senders.length)?d.senders:DEF_SENDERS;renderSenders();sellCfg={le900:d.sell&&d.sell.le900!=null?parseInt(d.sell.le900):null,eq1095:d.sell&&d.sell.eq1095!=null?parseInt(d.sell.eq1095):null};if(cur)renderScan();});
   unsubProd=onSnapshot(doc(db,'config','products'),s=>{if(s.exists()){const d=s.data();if(d.rows){mdRows=d.rows.map(x=>{if(Array.isArray(x))return x;const a=String(x).split('\t');return [a[0]||'',a[1]||'',a[2]||'',parseInt(a[3])||null,a[4]||'',a[5]||''];});products=buildProducts(mdRows);}else{products={};for(const [e,v] of Object.entries(d.items||{}))products[e]={s:v.s,d:v.d,sl:[]};mdRows=[];}productsMeta={updatedAt:d.updatedAt,by:d.by};}else{products={};mdRows=[];productsMeta=null;}$('prodInfo').innerHTML=prodInfoText();if(cur)renderScan();});
@@ -501,10 +508,11 @@ function renderSenders(){const s=$('fSender');const v=s.value;s.innerHTML='';sen
   const o=document.createElement('option');o.value='__other';o.textContent='Alt expeditor…';s.appendChild(o);if(v&&[...s.options].some(x=>x.value===v))s.value=v;}
 $('fSender').onchange=()=>{$('fSenderOther').style.display=$('fSender').value==='__other'?'':'none'};
 function renderHome(){
-  const list=$('sessList');list.innerHTML='';
-  $('sessCount').textContent=sessions.length?sessions.length+' total':'';
-  if(!sessions.length){list.innerHTML='<p class="muted" style="padding:14px;text-align:center">Nicio sesiune încă.</p>';return;}
-  sessions.forEach(s=>{
+  const list=$('sessList');list.innerHTML='';const live=sessions.filter(s=>!s.deletedAt),trash=sessions.filter(s=>s.deletedAt);
+  $('sessCount').textContent=live.length?live.length+' total':'';
+  const tb=$('btnTrash');tb.style.display=(me&&me.role==='admin')?'':'none';tb.textContent=`🗑 Șterse (${trash.length})`;
+  if(!live.length){list.innerHTML='<p class="muted" style="padding:14px;text-align:center">Nicio sesiune încă.</p>';return;}
+  live.forEach(s=>{
     const t=s.totals;const pcs=t?` · ${t.pieces} buc${t.nok?` · <span style="color:#fca5a5">${t.nok} NOK</span>`:''}`:'';
     const d=document.createElement('div');d.className='sess';
     d.innerHTML=`<div class="t"><b>${esc(s.sender)}</b> · ${s.pallets||0} pal.${s.ref?' · '+esc(s.ref):''}<br><span class="muted">${fmtDate(s.createdAt)} · ${(s.boxes||[]).length} cutii${pcs} · ${esc(s.createdByName||'')}</span></div>
@@ -875,10 +883,27 @@ $('btnClose').onclick=async()=>{
   btn.dataset.arm='1';btn.textContent='Apasă din nou pentru confirmare';setTimeout(()=>{delete btn.dataset.arm;renderScan();},3000);
 };
 $('btnDelete').onclick=()=>{if(!cur||me.role!=='admin')return;
-  askPin(`Ștergi definitiv sesiunea „${cur.sender}” (${(cur.boxes||[]).length} cutii, ${curScans.length} bucăți)?`,async()=>{
-    const sid=cur.id,ids=curScans.map(x=>x.id);leaveSession();
-    try{for(let i=0;i<ids.length;i+=400){const wb=writeBatch(db);ids.slice(i,i+400).forEach(x=>wb.delete(doc(db,'sessions',sid,'scans',x)));await wb.commit();}
-      await deleteDoc(sref(sid));toast('Sesiune ștearsă');}catch(e){toast('Eroare: '+e.code);}show('scrHome');});};
+  askPin(`Ștergi sesiunea „${cur.sender}” (${(cur.boxes||[]).length} cutii, ${curScans.length} bucăți)? Ajunge în „Sesiuni șterse”, de unde o poți restaura sau șterge definitiv.`,async()=>{
+    const sid=cur.id;leaveSession();
+    try{await updateDoc(sref(sid),{deletedAt:Date.now(),deletedBy:me.name,updatedAt:Date.now()});toast('Sesiune mutată în „Șterse”');}catch(e){toast('Eroare: '+e.code);}show('scrHome');});};
+/* ---- coș: restaurare / ștergere definitivă ---- */
+async function purgeSession(sid){
+  const snap=await getDocs(scansCol(sid));const ids=snap.docs.map(d=>d.id);
+  for(let i=0;i<ids.length;i+=400){const wb=writeBatch(db);ids.slice(i,i+400).forEach(x=>wb.delete(doc(db,'sessions',sid,'scans',x)));await wb.commit();}
+  await deleteDoc(sref(sid));
+}
+function renderTrash(){
+  const list=$('trashList');list.innerHTML='';const trash=sessions.filter(s=>s.deletedAt).sort((a,b)=>b.deletedAt-a.deletedAt);
+  if(!trash.length){list.innerHTML='<p class="muted" style="text-align:center;padding:10px">Coșul e gol.</p>';return;}
+  trash.forEach(s=>{const d=document.createElement('div');d.className='sess';d.style.cursor='default';
+    d.innerHTML=`<div class="t"><b>${esc(s.sender)}</b> · ${s.pallets||0} pal.${s.ref?' · '+esc(s.ref):''}<br><span class="muted">${fmtDate(s.createdAt)} · ${(s.boxes||[]).length} cutii${s.totals?' · '+s.totals.pieces+' buc':''}<br>ștearsă ${fmtDate(s.deletedAt)} de ${esc(s.deletedBy||'')}</span></div>
+      <button class="iconbtn" data-a="restore">↺ Restaurează</button><button class="iconbtn" data-a="purge" style="background:var(--err);color:#fff">✕ Definitiv</button>`;
+    d.querySelector('[data-a=restore]').onclick=async()=>{try{await updateDoc(sref(s.id),{deletedAt:null,deletedBy:null,updatedAt:Date.now()});toast('Sesiune restaurată');}catch(e){toast('Eroare: '+e.code);}setTimeout(renderTrash,300);};
+    d.querySelector('[data-a=purge]').onclick=()=>askPin(`Ștergi DEFINITIV sesiunea „${s.sender}” din ${fmtDate(s.createdAt)}? Nu se mai poate recupera.`,async()=>{try{await purgeSession(s.id);toast('Sesiune ștearsă definitiv');}catch(e){toast('Eroare: '+e.code);}setTimeout(renderTrash,300);});
+    list.appendChild(d);});
+}
+$('btnTrash').onclick=()=>{renderTrash();$('mTrash').classList.add('show');};
+$('trashClose').onclick=()=>$('mTrash').classList.remove('show');
 function csvLine(a){return a.map(v=>{v=String(v??'');return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(';');}
 function buildReport(){
   // Raport: Cutia | SPGR | EAN | Nart Description | Quantity | Batch | Condition — un rând per cutie + batch + condiție (OK/NOK)
