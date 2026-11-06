@@ -179,7 +179,7 @@
     <p class="muted">Un utilizator dezactivat nu mai poate intra. PIN-ul poate fi schimbat doar de utilizatorul însuși (din ⚙); dacă l-a uitat, dezactivează-i contul și creează-i unul nou cu alt nume.</p>
   </section>
 </main>
-<footer>Retur Marfă · sortare by voice · <span id="whoami"></span></footer>
+<footer>Retur Marfă · sortare by voice · <span id="whoami"></span> · <span class="muted">v2026-11-06c</span></footer>
 
 <!-- Settings modal -->
 <div class="modal" id="mSettings"><div class="box">
@@ -210,6 +210,10 @@
       <button class="btn sec" id="btnSellAdd" style="margin-top:10px">＋ Adaugă regula</button>
       <div class="err" id="sellErr"></div>
     </div>
+    <details style="margin-top:14px"><summary class="muted">🔧 Diagnostic dictare (ultima ascultare)</summary>
+      <textarea id="recLogTxt" rows="8" readonly style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;margin-top:6px"></textarea>
+      <button class="btn sec" id="btnRecLogCopy">Copiază jurnalul</button>
+    </details>
     <h3 style="margin-top:18px">Master data (NART / EAN / shelf life)</h3>
     <div class="muted" id="prodInfo" style="margin-bottom:6px"></div>
     <label>Import .xlsx (coloane: NART, DESCRIPTION, EAN, SHELF LIFE, FAMILY GROUP, EUCERIN) – adaugă / actualizează după NART</label>
@@ -859,26 +863,32 @@ function listen(opts){ // o ascultare → Promise<{text,alts}|{error}>; opts: {s
     try{speechSynthesis.cancel();}catch(e){}
     rec=new SR();rec.lang='ro-RO';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=true; // continuu: pauzele scurte nu închid microfonul
     const mic=$('lotMic');recActive=true;mic.style.background='var(--err)';mic.textContent='⏹';let finalTxt='',interimTxt='',alts=[],err=null,done=false,silenceT=null;
-    let finals=[],seenIdx={},evSeq=0;const norm=x=>String(x||'').trim().replace(/\s+/g,' ').toLowerCase();
-    const current=()=>(finalTxt.trim()||interimTxt.trim());
+    let finals=[],seenIdx={},evSeq=0;const norm=x=>String(x||'').trim().replace(/\s+/g,' ').toLowerCase();const t0=Date.now();recLog=[`UA: ${navigator.userAgent}`,`start ${new Date().toLocaleTimeString()}`];
+    const IS_ANDROID=/Android/i.test(navigator.userAgent);
+    // Android: când fiecare cuvânt apare de exact 2 sau 3 ori la rând (toate la fel), e dublare de recunoaștere → păstrăm câte unul
+    const collapseRuns=txt=>{if(!IS_ANDROID)return txt;const w=txt.split(' ').filter(Boolean);if(w.length<4)return txt;const runs=[];for(const x of w){const l=runs[runs.length-1];if(l&&l.w===x)l.n++;else runs.push({w:x,n:1});}
+      const g=runs.every(r=>r.n%3===0)?3:runs.every(r=>r.n%2===0)?2:0;if(!g)return txt;const out=[];runs.forEach(r=>{for(let i=0;i<r.n/g;i++)out.push(r.w);});return out.join(' ');};
+    const current=()=>collapseRuns((finalTxt.trim()||interimTxt.trim()));
     const finish=()=>{if(done)return;done=true;recActive=false;clearTimeout(silenceT);clearTimeout(hardT);try{rec.stop();}catch(e){}
       mic.style.background=wiz.active?'var(--warn)':'';mic.textContent=wiz.active?'⏹':'🎤';
-      const text=current();res(text?{text,alts:[text,...alts.filter(a=>a&&a!==text)]}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
+      const text=current();recLog.push(`rezultat: "${text}"${err?' err='+err:''}`);res(text?{text,alts:[text,...alts.filter(a=>a&&a!==text)]}:(err&&err!=='aborted'?{error:err}:{error:err||'no-speech'}));};
     const arm=()=>{clearTimeout(silenceT);const t=current();const ms=t&&isComplete(t)?700:silenceMs;silenceT=setTimeout(finish,ms);};
     rec.onresult=e=>{ // Chrome Android (mod continuu) repetă același segment de 2–3 ori, la aceleași indexuri sau cumulat → păstrăm fiecare index o singură dată și aruncăm dublurile emise în același moment
       const now=Date.now();let interim='';alts=[];evSeq++;
+      try{recLog.push(`+${now-t0}ms ri=${e.resultIndex} `+Array.from(e.results).map((r,i)=>`[${i}${r.isFinal?'F':'i'} "${r[0].transcript}" c=${r[0].confidence==null?'-':Number(r[0].confidence).toFixed(3)}]`).join(' '));if(recLog.length>80)recLog.splice(2,20);}catch(x){}
       for(let i=0;i<e.results.length;i++){const r=e.results[i];const t=norm(r[0].transcript);for(let j=1;j<r.length;j++)alts.push(r[j].transcript);
         if(!r.isFinal){if(i>=(e.resultIndex||0))interim+=' '+t;continue;}
         if(seenIdx[i]||!t)continue;seenIdx[i]=true;
-        const prev=finals[finals.length-1],all=norm(finals.map(f=>f.t).join(' '));
-        if(prev&&prev.t===t&&(prev.ev===evSeq||now-prev.at<250))continue;                 // dublură: același text, în același eveniment / același moment (o cifră repetată de om vine la >250 ms)
+        const prev=finals[finals.length-1],all=norm(finals.map(f=>f.t).join(' '));const conf=r[0].confidence;
+        if(prev&&finals.length>=2&&[2,3,4].some(k=>k<=finals.length&&norm(finals.slice(-k).map(f=>f.t).join(' '))===t)){recLog.push(`  → ignorat (re-emis cumulat) "${t}"`);continue;} // re-emite ultimele segmente lipite
+        if(prev&&prev.t===t&&(prev.ev===evSeq||now-prev.at<250)){recLog.push(`  → ignorat (dublură imediată) "${t}"`);continue;} // dublură: același text, în același eveniment / același moment (o cifră repetată de om vine la >250 ms)
         if(all&&t.startsWith(all)&&t.length>all.length){finals=[{t,at:now}];continue;}      // transcript cumulativ (conține tot ce era deja)
         if(all&&t.length>=3&&all.endsWith(t)&&prev&&(prev.ev===evSeq||now-prev.at<250))continue;   // segment multi-cifră repetat imediat
-        finals.push({t,at:now,ev:evSeq});}
+        finals.push({t,at:now,ev:evSeq,c:conf});}
       finalTxt=finals.map(f=>f.t).join(' ');interim=norm(interim);
       const last=finals[finals.length-1];if(interim&&last&&interim===last.t&&(last.ev===evSeq||now-last.at<250))interim='';   // interimul re-emis după finalizare
       if(interim)interimTxt=interim;else if(finalTxt)interimTxt='';
-      $('lotHeard').textContent='Am auzit: „'+(finalTxt+' '+interimTxt).trim()+'”';arm();};
+      $('lotHeard').textContent='Am auzit: „'+collapseRuns((finalTxt+' '+interimTxt).trim())+'”';arm();};
     rec.onerror=e=>{err=e.error||'error';};
     rec.onend=()=>{ // browserul a închis singur (ex. Safari) → încheiem cu ce avem
       if(!done){if(current())finish();else setTimeout(finish,200);}};
@@ -887,6 +897,8 @@ function listen(opts){ // o ascultare → Promise<{text,alts}|{error}>; opts: {s
     setTimeout(()=>{if(!done&&!current())finish();},7000); // nimic auzit în 7 s → „Nu am auzit”
   });
 }
+let recLog=[];
+$('btnRecLogCopy').onclick=async()=>{const t=recLog.join('\n');$('recLogTxt').value=t;try{await navigator.clipboard.writeText(t);toast('Jurnal copiat');}catch(e){$('recLogTxt').select();toast('Selectează și copiază textul');}};
 const wiz={active:false,step:null,retries:0};
 function wizStop(silent){wiz.active=false;wiz.step=null;try{if(rec)rec.abort?rec.abort():rec.stop();}catch(e){}const mic=$('lotMic');mic.style.background='';mic.textContent='🎤';if(!silent){speak('Oprit');$('lotHeard').textContent='Dictare oprită.';}}
 function wizStart(){ if(!editing)return;wiz.active=true;wiz.retries=0;$('lotMic').style.background='var(--warn)';$('lotMic').textContent='⏹';wizNext(true);}
@@ -1110,7 +1122,7 @@ $('btnAddUser').onclick=async()=>{
 
 /* ================= SETTINGS + PIN ================= */
 $('btnSettings').onclick=()=>{$('sVoice').checked=cfg.voice;$('sClips').checked=cfg.clips!==false;$('sBeep').checked=cfg.beep;$('sVibe').checked=cfg.vibe;$('sUpc').checked=cfg.upc;
-  $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';$('prodInfo').innerHTML=prodInfoText();$('prodStatus').textContent='';$('sSell900').value='';$('sSell1095').value='';$('sSellFrom').value='';$('sSellTo').value='';$('sSellNoEnd').checked=true;$('sSellTo').disabled=true;$('sellErr').textContent='';renderSellRules();loadVoices();$('mSettings').classList.add('show');};
+  $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';$('prodInfo').innerHTML=prodInfoText();$('prodStatus').textContent='';$('recLogTxt').value=recLog.join('\n');$('sSell900').value='';$('sSell1095').value='';$('sSellFrom').value='';$('sSellTo').value='';$('sSellNoEnd').checked=true;$('sSellTo').disabled=true;$('sellErr').textContent='';renderSellRules();loadVoices();$('mSettings').classList.add('show');};
 function renderSellRules(){const el=$('sellRulesList');if(!el)return;el.innerHTML='';if(!sellRules.length){el.innerHTML='<p class="muted" style="margin:6px 0">Nicio regulă – coloana Sellable Batch rămâne n/a.</p>';return;}
   [...sellRules].sort((a,b)=>String(a.from||'').localeCompare(String(b.from||''))).forEach(r=>{const d=document.createElement('div');d.className='sess';d.style.cursor='default';
     d.innerHTML=`<div class="t"><b>${r.from?fmtDay(r.from):'de la început'} → ${r.to?fmtDay(r.to):'nelimitat'}</b><br><span class="muted">≤ 900 zile: <b>${r.le900??'–'}</b> · = 1095 zile: <b>${r.eq1095??'–'}</b></span></div>${me&&me.role==='admin'?'<button class="iconbtn">✕</button>':''}`;
@@ -1122,7 +1134,7 @@ $('btnSellAdd').onclick=async()=>{if(!me||me.role!=='admin')return;$('sellErr').
   if(!t9&&!t1){$('sellErr').textContent='Completează cel puțin un prag.';return;}if((t9&&t9.length!==3)||(t1&&t1.length!==3)){$('sellErr').textContent='Pragul are 3 cifre (ex. 509).';return;}
   if(!to&&!$('sSellNoEnd').checked){$('sellErr').textContent='Alege data de sfârșit sau bifează „Nelimitat”.';return;}if(from&&to&&to<from){$('sellErr').textContent='Data de sfârșit e înaintea celei de început.';return;}
   const r={from,to,le900:t9?parseInt(t9):null,eq1095:t1?parseInt(t1):null,createdAt:Date.now(),by:me.name};$('btnSellAdd').disabled=true;
-  try{await setDoc(doc(db,'config','app'),{sellRules:[...sellRules,r]},{merge:true});toast('Regulă adăugată – se aplică și sesiunilor existente din perioadă');$('sSell900').value='';$('sSell1095').value='';$('sSellFrom').value='';$('sSellTo').value='';}catch(e){$('sellErr').textContent='Eroare: '+e.code;}$('btnSellAdd').disabled=false;};
+  try{await setDoc(doc(db,'config','app'),{sellRules:[...sellRules,r]},{merge:true});toast('Regulă adăugată – se aplică și sesiunilor existente din perioadă');$('recLogTxt').value=recLog.join('\n');$('sSell900').value='';$('sSell1095').value='';$('sSellFrom').value='';$('sSellTo').value='';}catch(e){$('sellErr').textContent='Eroare: '+e.code;}$('btnSellAdd').disabled=false;};
 $('sRate').oninput=()=>$('sRateV').textContent=$('sRate').value;
 $('btnCloseSettings').onclick=()=>{$('mSettings').classList.remove('show');focusScan();};
 $('btnSaveSettings').onclick=async()=>{cfg.voice=$('sVoice').checked;cfg.clips=$('sClips').checked;cfg.beep=$('sBeep').checked;cfg.vibe=$('sVibe').checked;cfg.upc=$('sUpc').checked;
