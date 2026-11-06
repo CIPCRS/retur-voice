@@ -173,10 +173,26 @@
   <label>Text pentru produs deja sortat ({n} = numărul cutiei, rostit în cuvinte)</label><input id="sTplSame">
   <label>Text pentru cutie nouă ({n} = numărul cutiei, rostit în cuvinte)</label><input id="sTplNew">
   <div id="sSendersWrap"><label>Listă expeditori (unul pe linie) – comună pentru toți</label><textarea id="sSenders" rows="5"></textarea>
-    <label>Listă articole (SKU / DESCRIPTION / EAN) – import .xlsx, comună pentru toți</label>
+    <h3 style="margin-top:18px">Vandabilitate (Sellable Batch)</h3>
+    <p class="muted" style="margin:0 0 6px">Prag = primele 3 cifre ale lotului (an + săptămână), ex. <b>509</b> = 2025, săpt. 09. Loturile cu valoare <b>mai mică</b> decât pragul nu sunt vandabile.</p>
+    <div class="row">
+      <div><label>Prag pentru shelf life ≤ 900 zile</label><input id="sSell900" inputmode="numeric" maxlength="3" placeholder="ex. 509"></div>
+      <div><label>Prag pentru shelf life = 1095 zile</label><input id="sSell1095" inputmode="numeric" maxlength="3" placeholder="ex. 440"></div>
+    </div>
+    <h3 style="margin-top:18px">Master data (NART / EAN / shelf life)</h3>
     <div class="muted" id="prodInfo" style="margin-bottom:6px"></div>
+    <label>Import .xlsx (coloane: NART, DESCRIPTION, EAN, SHELF LIFE, FAMILY GROUP, EUCERIN) – adaugă / actualizează după NART</label>
     <input type="file" id="prodFile" accept=".xlsx,.xls,.csv" style="padding:8px">
     <div class="muted" id="prodStatus" style="margin-top:4px;min-height:16px"></div>
+    <div class="row" style="margin-top:8px"><button class="btn sec" id="btnMdDownload">⬇ Descarcă master data</button><button class="btn sec" id="btnMdTemplate">⬇ Model fișier import</button></div>
+    <details style="margin-top:10px"><summary style="cursor:pointer;color:var(--acc)">＋ Adaugă / modifică un NART manual</summary>
+      <div class="row"><div><label>NART (12 cifre)</label><input id="mdNart" inputmode="numeric" maxlength="12"></div><div><label>EAN</label><input id="mdEan" inputmode="numeric"></div></div>
+      <label>Descriere</label><input id="mdDesc">
+      <div class="row"><div><label>Shelf life (zile)</label><input id="mdSl" inputmode="numeric" placeholder="900 / 1095"></div><div><label>Family group</label><input id="mdFam" placeholder="ROBDF01"></div></div>
+      <div class="switch"><span>EUCERIN</span><input type="checkbox" id="mdEuc"></div>
+      <button class="btn sec" id="btnMdAdd">Salvează NART</button>
+      <div class="muted" id="mdAddStatus" style="min-height:16px"></div>
+    </details>
   </div>
   <button class="btn" id="btnSaveSettings">Salvează</button>
   <h3 style="margin-top:18px">Schimbă PIN-ul meu</h3>
@@ -278,9 +294,21 @@ const DEF_SENDERS=['Mega Image','Kaufland','Penny','Profi','Carrefour','Auchan',
 let cfg=Object.assign({voice:true,beep:true,vibe:true,upc:true,voiceName:'',rate:1.1,tplSame:'{n}',tplNew:'Cutie nouă {n}'},JSON.parse(localStorage.getItem(LS_CFG)||'{}'));
 const saveCfg=()=>localStorage.setItem(LS_CFG,JSON.stringify(cfg));
 let senders=DEF_SENDERS;
-let products={},productsMeta=null;   // ean → {s:SPGR, d:descriere}
+let products={},productsMeta=null,mdRows=[];   // mdRows: [nart,desc,ean,sl,fam,euc]; products: ean → {s:SPGR, d:descriere, sl:[shelf life-uri]}
 const prodOf=ean=>products[ean]||null;
-function prodInfoText(){return productsMeta?`${productsMeta.count} articole · actualizat ${fmtDate(productsMeta.updatedAt)} de ${esc(productsMeta.by||'')}`:'Nicio listă de articole încărcată – SPGR și descrierea vor lipsi.';}
+function buildProducts(rows){const m={};for(const r of rows){const [nart,desc,ean,sl]=r;if(!ean)continue;let e=String(ean);if(cfg.upc&&/^\d{12}$/.test(e))e='0'+e;
+  const it=m[e]||(m[e]={s:String(nart).replace(/\D/g,'').slice(0,5),d:desc||'',sl:[]});if(!it.d&&desc)it.d=desc;const n=parseInt(sl);if(n&&!it.sl.includes(n))it.sl.push(n);}return m;}
+let sellCfg={le900:null,eq1095:null};
+/* lot = A SS Z xxxx : A = anul (5→2025), SS = săptămâna 01–54, Z = ziua 1–7 */
+function batchCheck(b){b=String(b||'');if(!/^\d{8}$/.test(b))return {ok:false,why:'trebuie 8 cifre'};const ww=parseInt(b.slice(1,3)),d=parseInt(b[3]);
+  if(ww<1||ww>54)return {ok:false,why:`săptămâna ${b.slice(1,3)} nu există (01–54)`,say:`Săptămâna ${numRo(ww)} nu există`};
+  if(d<1||d>7)return {ok:false,why:`ziua ${d} nu există (1–7)`,say:`Ziua ${numRo(d)} nu există`};return {ok:true,yww:parseInt(b.slice(0,3)),year:2020+parseInt(b[0]),week:ww,day:d};}
+/* vandabil: true / false / null (fără regulă: EAN necunoscut, shelf life în afara claselor sau prag nesetat) */
+function sellableFor(batch,ean){const pr=prodOf(ean);const c=batchCheck(batch);if(!pr||!pr.sl||!pr.sl.length||!c.ok)return null;
+  let verdict=null;for(const sl of pr.sl){let thr=null;if(sl<=900)thr=sellCfg.le900;else if(sl===1095)thr=sellCfg.eq1095;if(thr==null)continue;const ok=c.yww>=thr;verdict=verdict===null?ok:(verdict&&ok);} // cea mai strictă regulă dintre shelf life-urile EAN-ului
+  return verdict;}
+const SELL_TXT={true:'Yes',false:'No',null:'n/a'};
+function prodInfoText(){return productsMeta?`${mdRows.length} NART-uri · ${Object.keys(products).length} EAN-uri · actualizat ${fmtDate(productsMeta.updatedAt)} de ${esc(productsMeta.by||'')}`:'Nicio master data încărcată – SPGR, descrierea și shelf life-ul vor lipsi.';}
 
 /* ================= AUTH ================= */
 let me=null; // {uid,name,role,active}
@@ -343,8 +371,8 @@ function subscribe(){
   unsubSessions=onSnapshot(query(collection(db,'sessions'),orderBy('createdAt','desc'),limit(150)),snap=>{
     sessions=snap.docs.map(d=>Object.assign({id:d.id},d.data()));if($('scrHome').classList.contains('active'))renderHome();
   },e=>toast('Eroare sesiuni: '+e.code));
-  unsubCfg=onSnapshot(doc(db,'config','app'),s=>{senders=(s.exists()&&s.data().senders&&s.data().senders.length)?s.data().senders:DEF_SENDERS;renderSenders();});
-  unsubProd=onSnapshot(doc(db,'config','products'),s=>{if(s.exists()){products=s.data().items||{};productsMeta={count:s.data().count||Object.keys(products).length,updatedAt:s.data().updatedAt,by:s.data().by};}else{products={};productsMeta=null;}$('prodInfo').innerHTML=prodInfoText();if(cur)renderScan();});
+  unsubCfg=onSnapshot(doc(db,'config','app'),s=>{const d=s.exists()?s.data():{};senders=(d.senders&&d.senders.length)?d.senders:DEF_SENDERS;renderSenders();sellCfg={le900:d.sell&&d.sell.le900!=null?parseInt(d.sell.le900):null,eq1095:d.sell&&d.sell.eq1095!=null?parseInt(d.sell.eq1095):null};if(cur)renderScan();});
+  unsubProd=onSnapshot(doc(db,'config','products'),s=>{if(s.exists()){const d=s.data();if(d.rows){mdRows=d.rows.map(x=>{if(Array.isArray(x))return x;const a=String(x).split('\t');return [a[0]||'',a[1]||'',a[2]||'',parseInt(a[3])||null,a[4]||'',a[5]||''];});products=buildProducts(mdRows);}else{products={};for(const [e,v] of Object.entries(d.items||{}))products[e]={s:v.s,d:v.d,sl:[]};mdRows=[];}productsMeta={updatedAt:d.updatedAt,by:d.by};}else{products={};mdRows=[];productsMeta=null;}$('prodInfo').innerHTML=prodInfoText();if(cur)renderScan();});
 }
 window.addEventListener('online',()=>$('netbar').style.display='none');
 window.addEventListener('offline',()=>$('netbar').style.display='block');
@@ -560,7 +588,7 @@ function renderScan(hl){
   [...boxes].sort((a,b)=>b.no-a.no).forEach(b=>{
     const q=qtyOf(b.no),st=lotState(b);
     const tr=document.createElement('tr');if(b.full)tr.classList.add('full');if(b.no===hl)tr.classList.add('hl');
-    const lots=(b.lots&&b.lots.length)?'<br>🏷 '+b.lots.map(l=>esc(l.batch)+' ('+(parseInt(l.ok)||0)+' OK'+((parseInt(l.nok)||0)?' / <span style="color:#fca5a5">'+l.nok+' NOK</span>':'')+')').join(', ')+(st==='bad'?' <span class="tag">'+lotSum(b)+'/'+q+'</span>':''):(st==='none'?'<br><span class="tag">fără lot</span>':'');
+    const lots=(b.lots&&b.lots.length)?'<br>🏷 '+b.lots.map(l=>esc(l.batch)+' ('+(parseInt(l.ok)||0)+' OK'+((parseInt(l.nok)||0)?' / <span style="color:#fca5a5">'+l.nok+' NOK</span>':'')+')'+(l.sell===false?' <span class="tag" style="background:var(--err);color:#fff">NEVANDABIL</span>':'')).join(', ')+(st==='bad'?' <span class="tag">'+lotSum(b)+'/'+q+'</span>':''):(st==='none'?'<br><span class="tag">fără lot</span>':'');
     tr.innerHTML=`<td class="n">${b.no}${b.full?'<span class="tag">plină</span>':''}</td><td><div class="ean">${esc(b.ean)}${boxSpgr(b)?' <span style="color:var(--acc)">SPGR '+esc(boxSpgr(b))+'</span>':' <span class="tag">EAN necunoscut</span>'}</div><div class="name">${esc(boxDesc(b))}${lots}</div></td><td class="q">${q}</td><td style="width:34px;color:var(--muted)">›</td>`;
     tr.onclick=()=>editBox(b);tb.appendChild(tr);
   });
@@ -616,7 +644,7 @@ let editing=null;
 function editBox(b){
   const src=(cur.boxes||[]).find(x=>x.no===b.no)||b;
   editing={no:src.no,ean:src.ean,spgr:boxSpgr(src),name:boxDesc(src),full:!!src.full,lots:JSON.parse(JSON.stringify(src.lots||[])),qty:qtyOf(src.no)};
-  $('mbTitle').textContent='Cutia '+editing.no+' · '+editing.qty+' buc scanate';$('mbEan').textContent='EAN '+editing.ean;$('mbInfo').innerHTML=editing.spgr?`SPGR <b style="color:var(--acc)">${esc(editing.spgr)}</b> · ${esc(editing.name)}`:'<span class="tag">EAN necunoscut în lista de articole</span> – cere admin-ului să actualizeze lista';$('mbFull').checked=editing.full;
+  $('mbTitle').textContent='Cutia '+editing.no+' · '+editing.qty+' buc scanate';$('mbEan').textContent='EAN '+editing.ean;$('mbInfo').innerHTML=editing.spgr?`SPGR <b style="color:var(--acc)">${esc(editing.spgr)}</b> · ${esc(editing.name)}${(prodOf(editing.ean)||{}).sl&&prodOf(editing.ean).sl.length?' · shelf life '+prodOf(editing.ean).sl.join('/')+' zile':''}`:'<span class="tag">EAN necunoscut în lista de articole</span> – cere admin-ului să actualizeze lista';$('mbFull').checked=editing.full;
   $('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();$('mBox').classList.add('show');setLotTarget('lotOk');setTimeout(()=>$('lotOk').focus({preventScroll:true}),80);
 }
 $('mbMinus').onclick=()=>{
@@ -655,7 +683,7 @@ $('mbSave').onclick=()=>{if(wiz.active)wizStop(true);saveBox(false);};$('mbSaveN
 function renderLots(){
   const tb=$('lotRows');tb.innerHTML='';
   editing.lots.forEach((l,i)=>{const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="ean" style="letter-spacing:2px;font-size:16px">${esc(l.batch)}</td><td class="q">${parseInt(l.ok)||0}</td><td class="q" style="color:${(parseInt(l.nok)||0)?'#fca5a5':'inherit'}">${parseInt(l.nok)||0}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
+    tr.innerHTML=`<td class="ean" style="letter-spacing:2px;font-size:16px">${esc(l.batch)}${l.sell===false?'<br><span class="tag" style="background:var(--err);color:#fff">NEVANDABIL</span>':l.sell===true?'<br><span class="tag" style="background:#14532d;color:#86efac">vandabil</span>':''}</td><td class="q">${parseInt(l.ok)||0}</td><td class="q" style="color:${(parseInt(l.nok)||0)?'#fca5a5':'inherit'}">${parseInt(l.nok)||0}</td><td style="width:44px;text-align:right"><button class="iconbtn">✕</button></td>`;
     tr.querySelector('button').onclick=()=>{askPin(`Ștergi lotul ${l.batch} (${parseInt(l.ok)||0} OK / ${parseInt(l.nok)||0} NOK)?`,()=>{editing.lots.splice(i,1);renderLots();});};tb.appendChild(tr);});
   const sum=lotSum(editing),w=$('lotWarn'),rest=editing.qty-sum;
   if(!editing.lots.length){w.textContent=`Niciun lot declarat pentru cele ${editing.qty} bucăți. Tastează batch / OK / NOK, sau apasă 🎤 o dată și răspunde la întrebări („Lotul?”, „Câte OK?”, „Câte NOK?”).`;w.style.color='';}
@@ -672,9 +700,11 @@ function addLot(silent){
   if(rest<=0){toast(`Toate cele ${editing.qty} bucăți din cutie au deja lot`);beep('bad');speak('Toate bucățile au deja lot');return false;}
   if(q>rest){toast(`Prea multe: OK+NOK = ${q}, dar mai sunt doar ${rest} bucăți fără lot`);beep('bad');speak(`Prea multe. Mai e loc doar pentru ${bucRo(rest)}`);$('lotOk').value=Math.max(0,rest-nok);$('lotOk').focus();return false;}
   if(!/^\d{8}$/.test(b)){toast(b?`Batch-ul trebuie să aibă exact 8 cifre (acum: ${b.length})`:'Lipsește batch-ul');beep('bad');speak(b?`Batch incomplet, ${numRo(b.length)} cifre`:'Lipsește batch-ul');$('lotBatch').focus();return false;}
-  const ex=editing.lots.find(l=>l.batch===b);if(ex){ex.ok=(parseInt(ex.ok)||0)+ok;ex.nok=(parseInt(ex.nok)||0)+nok;}else editing.lots.push({batch:b,ok,nok});
+  const chk=batchCheck(b);if(!chk.ok){toast('Lot invalid: '+chk.why);beep('bad');speak(chk.say||'Lot invalid');$('lotBatch').focus();return false;}
+  const sell=sellableFor(b,editing.ean);
+  const ex=editing.lots.find(l=>l.batch===b);if(ex){ex.ok=(parseInt(ex.ok)||0)+ok;ex.nok=(parseInt(ex.nok)||0)+nok;ex.sell=sell;}else editing.lots.push({batch:b,ok,nok,sell});
   $('lotBatch').value='';$('lotHeard').textContent='';updLotCount();renderLots();
-  const conf=`${bucRo(q)}${nok?`, ${nok===1?'una':numRoF(nok)} NOK`:''}, lot ${spellDigits(b)}. Adăugat.`;
+  const conf=`${bucRo(q)}${nok?`, ${nok===1?'una':numRoF(nok)} NOK`:''}, lot ${spellDigits(b)}. Adăugat.`+(sell===false?' Acest lot nu este vandabil.':'');
   const rest2=editing.qty-lotSum(editing);
   if(!silent){speak(conf);if(rest2===0)setTimeout(()=>speak('Cutie completă'),1500);}
   return conf;
@@ -698,7 +728,8 @@ function updLotCount(){const b=$('lotBatch').value.replace(/\D/g,'');$('lotBatch
 let autoT=null;
 function tryAutoAdd(){clearTimeout(autoT);const b=$('lotBatch').value.replace(/\D/g,'');if(b.length!==8||!editing)return;if(wiz.active&&wiz.step)return;
   const q=(parseInt($('lotOk').value)||0)+(parseInt($('lotNok').value)||0);
-  if(q<=0){toast('Batch complet – scrie bucățile OK / NOK');speak('Scrie bucățile');setLotTarget('lotOk');$('lotOk').focus({preventScroll:true});return;}
+  const chk=batchCheck(b);if(!chk.ok){toast('Lot invalid: '+chk.why);beep('bad');speak(chk.say||'Lot invalid');return;}
+  if(q<=0){const sv=sellableFor(b,editing.ean);toast((sv===false?'LOT NEVANDABIL · ':'')+'Batch complet – scrie bucățile OK / NOK');speak((sv===false?'Acest lot nu este vandabil. ':'')+'Scrie bucățile');setLotTarget('lotOk');$('lotOk').focus({preventScroll:true});return;}
   autoT=setTimeout(()=>{if(addLot()){setLotTarget('lotOk');setTimeout(()=>$('lotOk').focus({preventScroll:true}),50);}},250);}
 $('lotBatch').addEventListener('input',()=>{updLotCount();tryAutoAdd();});
 ['lotOk','lotNok'].forEach(i=>{$(i).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();if($('lotBatch').value.length===8)tryAutoAdd();else $(i==='lotOk'?'lotNok':'lotBatch').focus();}});});
@@ -811,6 +842,8 @@ function wizAsk(step,prefix){
     if(!msg.length){if(++wiz.retries<=2){wizAsk(step,'Nu am înțeles. ');return;}wizStop(true);speak('Nu am înțeles. Oprit');return;}
     const q=(parseInt(okEl.value)||0)+(parseInt(nokEl.value)||0),rest=editing.qty-lotSum(editing);
     if(step==='batch'&&bEl.value.length!==8){speakThen(bEl.value.length===1?'Doar o cifră.':`Doar ${numRo(bEl.value.length)} cifre.`,()=>{bEl.value='';updLotCount();wizAsk('batch');});return;}
+    if(bEl.value.length===8){const chk=batchCheck(bEl.value);if(!chk.ok){$('lotHeard').textContent+='  →  lot invalid: '+chk.why;speakThen((chk.say||'Lot invalid')+'.',()=>{bEl.value='';updLotCount();wizAsk('batch');});return;}
+      if(step==='batch'){const sv=sellableFor(bEl.value,editing.ean);$('lotHeard').textContent+=sv===false?'  →  NEVANDABIL':sv===true?'  →  vandabil':'';if(sv===false){speakThen('Acest lot nu este vandabil.',()=>wizNext(false));return;}}}
     if(q>rest){speakThen(`Prea multe. Mai e loc doar pentru ${bucRo(rest)}.`,()=>{okEl.value='';nokEl.value='';wizAsk('ok');});return;}
     if(bEl.value.length===8&&!isNaN(parseInt(okEl.value))&&!isNaN(parseInt(nokEl.value))){
       if(q<=0){speakThen('Zero bucăți. Spune cantitățile.',()=>{okEl.value='';nokEl.value='';wizAsk('ok');});return;}
@@ -836,7 +869,7 @@ $('btnClose').onclick=async()=>{
   const bad=(cur.boxes||[]).filter(b=>lotState(b)!=='ok');
   if(bad.length&&!btn.dataset.arm){toast('Atenție: cutiile '+bad.map(b=>b.no).join(', ')+' nu au loturi complete');beep('bad');}
   if(btn.dataset.arm){delete btn.dataset.arm;
-    const totals={pieces:curScans.length,boxes:(cur.boxes||[]).length,nok:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0)};
+    const totals={pieces:curScans.length,boxes:(cur.boxes||[]).length,nok:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0),unsellable:(cur.boxes||[]).reduce((a,b)=>a+(b.lots||[]).filter(l=>l.sell===false).reduce((x,l)=>x+lotQty(l),0),0)};
     updateDoc(sref(sid),{closedAt:Date.now(),closedByName:me.name,totals,updatedAt:Date.now()}).catch(e=>toast('Eroare: '+e.code));
     speak('Sesiune închisă');toast('Sesiune închisă');setBig('','Sesiune închisă','✔',`${totals.boxes} cutii · ${totals.pieces} buc · ${totals.nok} NOK`);return;}
   btn.dataset.arm='1';btn.textContent='Apasă din nou pentru confirmare';setTimeout(()=>{delete btn.dataset.arm;renderScan();},3000);
@@ -850,9 +883,9 @@ function csvLine(a){return a.map(v=>{v=String(v??'');return /[;"\n]/.test(v)?'"'
 function buildReport(){
   // Raport: Cutia | SPGR | EAN | Nart Description | Quantity | Batch | Condition — un rând per cutie + batch + condiție (OK/NOK)
   const rows=[];const boxes=[...(cur.boxes||[])].sort((a,b)=>a.no-b.no);
-  const push=(b,qty,batch,cond)=>{if(qty>0)rows.push({'Cutia':b.no,'SPGR':boxSpgr(b),'EAN':b.ean,'Nart Description':boxDesc(b),'Quantity':qty,'Batch':batch,'Condition':cond});};
+  const push=(b,qty,batch,cond,sell)=>{if(qty>0)rows.push({'Cutia':b.no,'SPGR':boxSpgr(b),'EAN':b.ean,'Nart Description':boxDesc(b),'Quantity':qty,'Batch':batch,'Condition':cond,'Sellable Batch':batch?SELL_TXT[sell===undefined?sellableFor(batch,b.ean):sell]:''});};
   boxes.forEach(b=>{const lots=b.lots||[];if(!lots.length){push(b,qtyOf(b.no),'','');return;}
-    lots.forEach(l=>{push(b,parseInt(l.ok)||0,l.batch,'OK');push(b,parseInt(l.nok)||0,l.batch,'NOK');});
+    lots.forEach(l=>{push(b,parseInt(l.ok)||0,l.batch,'OK',l.sell);push(b,parseInt(l.nok)||0,l.batch,'NOK',l.sell);});
     const diff=qtyOf(b.no)-lotSum(b);if(diff>0)push(b,diff,'','');});
   return rows;
 }
@@ -862,46 +895,79 @@ $('btnExport').onclick=()=>{
   const fname=`Retur_${cur.sender.replace(/[^\w]+/g,'_')}_${new Date(cur.createdAt).toISOString().slice(0,16).replace(/[:T]/g,'-')}`;
   if(window.XLSX){
     const wb=XLSX.utils.book_new();
-    const ws1=XLSX.utils.json_to_sheet(report,{header:['Cutia','SPGR','EAN','Nart Description','Quantity','Batch','Condition']});
-    ws1['!cols']=[{wch:7},{wch:8},{wch:16},{wch:40},{wch:10},{wch:12},{wch:10}];XLSX.utils.book_append_sheet(wb,ws1,'Raport');
-    const info=[{Camp:'Expeditor',Valoare:cur.sender},{Camp:'Data sesiune',Valoare:fmtDate(cur.createdAt)},{Camp:'Nr paleti',Valoare:cur.pallets},{Camp:'Referinta',Valoare:cur.ref||''},{Camp:'Deschisa de',Valoare:cur.createdByName||''},{Camp:'Total bucati scanate',Valoare:curScans.length},{Camp:'Total cutii',Valoare:(cur.boxes||[]).length},{Camp:'Total NOK',Valoare:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0)}];
+    const ws1=XLSX.utils.json_to_sheet(report,{header:['Cutia','SPGR','EAN','Nart Description','Quantity','Batch','Condition','Sellable Batch']});
+    ws1['!cols']=[{wch:7},{wch:8},{wch:16},{wch:40},{wch:10},{wch:12},{wch:10},{wch:14}];XLSX.utils.book_append_sheet(wb,ws1,'Raport');
+    const info=[{Camp:'Expeditor',Valoare:cur.sender},{Camp:'Prag vandabil shelf life ≤900',Valoare:sellCfg.le900??''},{Camp:'Prag vandabil shelf life =1095',Valoare:sellCfg.eq1095??''},{Camp:'Data sesiune',Valoare:fmtDate(cur.createdAt)},{Camp:'Nr paleti',Valoare:cur.pallets},{Camp:'Referinta',Valoare:cur.ref||''},{Camp:'Deschisa de',Valoare:cur.createdByName||''},{Camp:'Total bucati scanate',Valoare:curScans.length},{Camp:'Total cutii',Valoare:(cur.boxes||[]).length},{Camp:'Total NOK',Valoare:(cur.boxes||[]).reduce((a,b)=>a+lotNok(b),0)}];
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(info),'Sesiune');
     const cut=[];[...(cur.boxes||[])].sort((a,b)=>a.no-b.no).forEach(b=>{const base={Cutia:b.no,SPGR:boxSpgr(b),EAN:b.ean,'Nart Description':boxDesc(b),'Bucati scanate':qtyOf(b.no),'Cutie plina':b.full?'da':'nu'};
       const lots=b.lots||[];if(!lots.length){cut.push(Object.assign({},base,{Batch:'',OK:'',NOK:''}));return;}
-      lots.forEach(l=>cut.push(Object.assign({},base,{Batch:l.batch,OK:parseInt(l.ok)||0,NOK:parseInt(l.nok)||0})));});
-    const wsC=XLSX.utils.json_to_sheet(cut,{header:['Cutia','SPGR','EAN','Nart Description','Bucati scanate','Batch','OK','NOK','Cutie plina']});wsC['!cols']=[{wch:7},{wch:8},{wch:16},{wch:40},{wch:14},{wch:12},{wch:6},{wch:6},{wch:11}];
+      lots.forEach(l=>cut.push(Object.assign({},base,{Batch:l.batch,OK:parseInt(l.ok)||0,NOK:parseInt(l.nok)||0,'Sellable Batch':SELL_TXT[l.sell===undefined?sellableFor(l.batch,b.ean):l.sell]})));});
+    const wsC=XLSX.utils.json_to_sheet(cut,{header:['Cutia','SPGR','EAN','Nart Description','Bucati scanate','Batch','OK','NOK','Sellable Batch','Cutie plina']});wsC['!cols']=[{wch:7},{wch:8},{wch:16},{wch:40},{wch:14},{wch:12},{wch:6},{wch:6},{wch:14},{wch:11}];
     XLSX.utils.book_append_sheet(wb,wsC,'Cutii');
     const jur=curScans.map(x=>({Ora:new Date(x.ts).toLocaleString('ro-RO'),EAN:x.ean,Cutia:x.box,User:x.by||''}));
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(jur.length?jur:[{Ora:'',EAN:'',Cutia:'',User:''}]),'Jurnal scanari');
     XLSX.writeFile(wb,fname+'.xlsx');return;
   }
-  const rows=[csvLine(['Cutia','SPGR','EAN','Nart Description','Quantity','Batch','Condition'])];report.forEach(r=>rows.push(csvLine(Object.values(r))));
+  const rows=[csvLine(['Cutia','SPGR','EAN','Nart Description','Quantity','Batch','Condition','Sellable Batch'])];report.forEach(r=>rows.push(csvLine(Object.values(r))));
   const blob=new Blob(['﻿'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname+'.csv';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
 };
 
-/* ================= IMPORT LISTĂ ARTICOLE (admin) ================= */
+/* ================= MASTER DATA (admin): import / adaugă / descarcă ================= */
+const MD_HEAD=['NART','DESCRIPTION','EAN','SHELF LIFE','FAMILY GROUP','EUCERIN'];
+async function mdSave(rows,note){
+  const seen=new Set();rows=rows.filter(r=>{const k=String(r[0]);if(seen.has(k))return false;seen.add(k);return true;});
+  const packed=rows.map(r=>[r[0],r[1],r[2],r[3]??'',r[4]||'',r[5]||''].map(v=>String(v??'').replace(/\t/g,' ')).join('\t'));
+  await setDoc(doc(db,'config','products'),{rows:packed,count:rows.length,updatedAt:Date.now(),by:me.name,source:note||''});
+}
+function mdMerge(base,incoming){const m=new Map(base.map(r=>[String(r[0]),r]));let added=0,updated=0;for(const r of incoming){const k=String(r[0]);if(m.has(k)){m.set(k,r);updated++;}else{m.set(k,r);added++;}}return {rows:[...m.values()],added,updated};}
+const normEanMd=v=>String(v||'').trim().replace(/\.0+$/,'').replace(/\s/g,'');
 $('prodFile').addEventListener('change',async e=>{
   const f=e.target.files[0];if(!f)return;const st=$('prodStatus');
-  if(!me||me.role!=='admin'){st.textContent='Doar admin poate importa lista.';return;}
+  if(!me||me.role!=='admin'){st.textContent='Doar admin poate importa master data.';return;}
   if(!window.XLSX){st.textContent='Biblioteca Excel nu s-a încărcat – verifică conexiunea și reîncarcă pagina.';return;}
   st.textContent='Se citește fișierul…';
   try{
     const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];
     const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-    let hi=rows.findIndex(r=>r.some(c=>/^sku$/i.test(String(c).trim()))&&r.some(c=>/^ean$/i.test(String(c).trim())));
-    if(hi<0)throw new Error('Nu găsesc coloanele SKU și EAN în prima foaie');
-    const H=rows[hi].map(c=>String(c).trim().toUpperCase());const iS=H.indexOf('SKU'),iE=H.indexOf('EAN'),iD=H.findIndex(h=>/DESCRIPTION|DENUMIRE/.test(h));
-    const items={};let n=0,skipped=0;
-    for(const r of rows.slice(hi+1)){let ean=String(r[iE]||'').trim().replace(/\.0+$/,'').replace(/\s/g,'');const sku=String(r[iS]||'').trim();if(!ean||!sku){skipped++;continue;}
-      if(cfg.upc&&/^\d{12}$/.test(ean))ean='0'+ean;
-      const spgr=sku.replace(/\D/g,'').slice(0,5);if(!items[ean]){items[ean]={s:spgr,d:iD>=0?String(r[iD]||'').trim():''};n++;}}
-    if(!n)throw new Error('Niciun rând valid (SKU + EAN)');
-    st.textContent=`Se salvează ${n} articole…`;
-    await setDoc(doc(db,'config','products'),{items,count:n,updatedAt:Date.now(),by:me.name,source:f.name});
-    st.textContent=`✔ Import reușit: ${n} EAN-uri (${skipped} rânduri fără EAN/SKU ignorate).`;toast('Lista de articole actualizată');
+    const hi=rows.findIndex(r=>r.some(c=>/^(nart|sku)$/i.test(String(c).trim()))&&r.some(c=>/^ean$/i.test(String(c).trim())));
+    if(hi<0)throw new Error('Nu găsesc coloanele NART (sau SKU) și EAN în prima foaie');
+    const H=rows[hi].map(c=>String(c).trim().toUpperCase());const col=re=>H.findIndex(h=>re.test(h));
+    const iN=col(/^(NART|SKU)$/),iE=col(/^EAN$/),iD=col(/DESCRIPTION|DENUMIRE/),iS=col(/SHELF/),iF=col(/FAMILY/),iU=col(/EUCERIN/);
+    const inc=[];let skipped=0;
+    for(const r of rows.slice(hi+1)){const nart=String(r[iN]||'').trim();if(!nart){skipped++;continue;}
+      const sl=iS>=0?parseInt(String(r[iS]).replace(/\D/g,''))||null:null;
+      inc.push([nart,iD>=0?String(r[iD]||'').trim():'',normEanMd(iE>=0?r[iE]:''),sl,iF>=0?String(r[iF]||'').trim():'',iU>=0&&/EUCERIN|DA|YES|X|1/i.test(String(r[iU]||'').trim())?'EUCERIN':'']);}
+    if(!inc.length)throw new Error('Niciun rând valid (NART)');
+    const {rows:merged,added,updated}=mdMerge(mdRows,inc);
+    st.textContent=`Se salvează ${merged.length} NART-uri…`;
+    await mdSave(merged,f.name);
+    st.textContent=`✔ Import reușit: ${added} NART-uri noi, ${updated} actualizate (${skipped} rânduri fără NART ignorate). Total: ${merged.length}.`;toast('Master data actualizată');
   }catch(err){st.textContent='Eroare import: '+(err.code||err.message);}
   e.target.value='';
 });
+$('btnMdDownload').onclick=()=>{
+  if(!window.XLSX){toast('Biblioteca Excel nu s-a încărcat');return;}
+  const data=mdRows.length?mdRows.map(r=>({NART:r[0],DESCRIPTION:r[1],EAN:r[2],'SHELF LIFE':r[3]??'','FAMILY GROUP':r[4]||'',EUCERIN:r[5]||'',SPGR:String(r[0]).slice(0,5)})):Object.entries(products).map(([e,v])=>({NART:'',DESCRIPTION:v.d,EAN:e,'SHELF LIFE':'','FAMILY GROUP':'',EUCERIN:'',SPGR:v.s}));
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet(data,{header:[...MD_HEAD,'SPGR']});ws['!cols']=[{wch:14},{wch:40},{wch:16},{wch:11},{wch:13},{wch:9},{wch:7}];
+  XLSX.utils.book_append_sheet(wb,ws,'Master data');
+  const thr=[{Setare:'Prag vandabilitate shelf life ≤ 900',Valoare:sellCfg.le900??''},{Setare:'Prag vandabilitate shelf life = 1095',Valoare:sellCfg.eq1095??''}];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(thr),'Setari');
+  XLSX.writeFile(wb,`MasterData_${new Date().toISOString().slice(0,10)}.xlsx`);
+};
+$('btnMdTemplate').onclick=()=>{
+  if(!window.XLSX){toast('Biblioteca Excel nu s-a încărcat');return;}
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.json_to_sheet([{NART:'840891022200',DESCRIPTION:'NIV MATCHING GAME',EAN:'4006000140476','SHELF LIFE':900,'FAMILY GROUP':'ROBDF10',EUCERIN:''}],{header:MD_HEAD});
+  ws['!cols']=[{wch:14},{wch:40},{wch:16},{wch:11},{wch:13},{wch:9}];XLSX.utils.book_append_sheet(wb,ws,'Export Worksheet');XLSX.writeFile(wb,'Model_MasterData.xlsx');
+};
+$('btnMdAdd').onclick=async()=>{
+  const st=$('mdAddStatus');if(!me||me.role!=='admin'){st.textContent='Doar admin.';return;}
+  const nart=$('mdNart').value.replace(/\D/g,''),ean=normEanMd($('mdEan').value),desc=$('mdDesc').value.trim(),sl=parseInt($('mdSl').value)||null,fam=$('mdFam').value.trim(),euc=$('mdEuc').checked?'EUCERIN':'';
+  if(nart.length<5){st.textContent='NART-ul trebuie să aibă cel puțin 5 cifre (12 în mod normal).';return;}
+  if(!ean){st.textContent='Lipsește EAN-ul.';return;}
+  try{const {rows,added}=mdMerge(mdRows,[[nart,desc,ean,sl,fam,euc]]);await mdSave(rows,'manual');
+    st.textContent=added?`✔ NART ${nart} adăugat (SPGR ${nart.slice(0,5)}).`:`✔ NART ${nart} actualizat.`;['mdNart','mdEan','mdDesc','mdSl','mdFam'].forEach(i=>$(i).value='');$('mdEuc').checked=false;}
+  catch(e){st.textContent='Eroare: '+(e.code||e.message);}
+};
 
 /* ================= USERS (admin) ================= */
 $('btnUsers').onclick=()=>{if(me.role!=='admin')return;leaveSession();show('scrUsers');$('title').textContent='Utilizatori';
@@ -932,12 +998,14 @@ $('btnAddUser').onclick=async()=>{
 
 /* ================= SETTINGS + PIN ================= */
 $('btnSettings').onclick=()=>{$('sVoice').checked=cfg.voice;$('sClips').checked=cfg.clips!==false;$('sBeep').checked=cfg.beep;$('sVibe').checked=cfg.vibe;$('sUpc').checked=cfg.upc;
-  $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';$('prodInfo').innerHTML=prodInfoText();$('prodStatus').textContent='';loadVoices();$('mSettings').classList.add('show');};
+  $('sRate').value=cfg.rate;$('sRateV').textContent=cfg.rate;$('sTplSame').value=cfg.tplSame;$('sTplNew').value=cfg.tplNew;$('sSenders').value=senders.join('\n');$('pErr').textContent='';$('prodInfo').innerHTML=prodInfoText();$('prodStatus').textContent='';$('sSell900').value=sellCfg.le900??'';$('sSell1095').value=sellCfg.eq1095??'';loadVoices();$('mSettings').classList.add('show');};
 $('sRate').oninput=()=>$('sRateV').textContent=$('sRate').value;
 $('btnCloseSettings').onclick=()=>{$('mSettings').classList.remove('show');focusScan();};
 $('btnSaveSettings').onclick=async()=>{cfg.voice=$('sVoice').checked;cfg.clips=$('sClips').checked;cfg.beep=$('sBeep').checked;cfg.vibe=$('sVibe').checked;cfg.upc=$('sUpc').checked;
   cfg.rate=parseFloat($('sRate').value);cfg.voiceName=$('sVoiceName').value;badVoices.clear();cfg.tplSame=$('sTplSame').value||'{n}';cfg.tplNew=$('sTplNew').value||'Cutie nouă {n}';saveCfg();
-  if(me&&me.role==='admin'){const list=$('sSenders').value.split('\n').map(s=>s.trim()).filter(Boolean);try{await setDoc(doc(db,'config','app'),{senders:list.length?list:DEF_SENDERS},{merge:true});}catch(e){toast('Eroare expeditori: '+e.code);}}
+  if(me&&me.role==='admin'){const list=$('sSenders').value.split('\n').map(s=>s.trim()).filter(Boolean);const t9=$('sSell900').value.replace(/\D/g,''),t1=$('sSell1095').value.replace(/\D/g,'');
+    if((t9&&t9.length!==3)||(t1&&t1.length!==3)){toast('Pragul de vandabilitate are 3 cifre (ex. 509)');return;}
+    try{await setDoc(doc(db,'config','app'),{senders:list.length?list:DEF_SENDERS,sell:{le900:t9?parseInt(t9):null,eq1095:t1?parseInt(t1):null}},{merge:true});}catch(e){toast('Eroare setări: '+e.code);}}
   $('mSettings').classList.remove('show');toast('Setări salvate');sayBox(cfg.tplSame,3);focusScan();};
 $('btnPin').onclick=async()=>{
   const o=$('pOld').value.trim(),n=$('pNew').value.trim();$('pErr').textContent='';
