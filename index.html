@@ -180,7 +180,7 @@
     <p class="muted">Un utilizator dezactivat nu mai poate intra. PIN-ul poate fi schimbat doar de utilizatorul însuși (din ⚙); dacă l-a uitat, dezactivează-i contul și creează-i unul nou cu alt nume.</p>
   </section>
 </main>
-<footer>Retur Marfă · sortare by voice · <span id="whoami"></span> · <span class="muted">v2026-11-10a</span></footer>
+<footer>Retur Marfă · sortare by voice · <span id="whoami"></span> · <span class="muted">v2026-11-10b</span></footer>
 
 <!-- Settings modal -->
 <div class="modal" id="mSettings"><div class="box">
@@ -275,6 +275,7 @@
     <div><label>De la</label><input type="date" id="actFrom"></div>
     <div><label>Până la</label><input type="date" id="actTo"></div>
   </div>
+  <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="actIncEst" checked style="width:auto;transform:scale(1.3)"> Include activitatea reconstruită din scanări (pentru zilele dinainte de jurnal)</label>
   <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button class="btn sec" id="actRefresh" style="flex:1">Reîncarcă</button><button class="btn sec" id="actExport" style="flex:1">⬇ Excel</button></div>
   <div id="actSummary" class="muted" style="margin:4px 0"></div>
   <div style="overflow:auto;max-height:55vh"><table class="tbl" id="actTbl"><thead><tr><th>Utilizator</th><th>Intrare</th><th>Ieșire</th><th>Durată</th><th>Dispozitiv</th></tr></thead><tbody></tbody></table></div>
@@ -487,18 +488,34 @@ async function actLoad(){if(!me||me.role!=='admin')return;const f=$('actFrom').v
   $('actSummary').textContent='Se încarcă…';
   try{const snap=await getDocs(query(collection(db,'activity'),where('start','>=',from),where('start','<=',to),orderBy('start','desc'),limit(2000)));
     actRows=snap.docs.map(d=>Object.assign({id:d.id},d.data()));}catch(e){$('actSummary').textContent='Eroare: '+e.code;return;}
+  if($('actIncEst').checked){try{const est=await actEstimate(from,to);actRows=actRows.concat(est).sort((a,b)=>b.start-a.start);}catch(e){console.warn('estimare',e);}}
   actRender();}
+/* reconstruire din urmă: pentru zilele fără jurnal, prima și ultima acțiune a fiecărui utilizator (scanări, cutii noi, deschidere/închidere sesiune) */
+const scanCache=new Map();   // sid → [{ts,by}] (sesiunile închise nu se mai schimbă; cele deschise se recitesc)
+async function actEstimate(from,to){
+  const ev=[];const inRange=t=>t>=from&&t<=to;
+  const sess=sessions.filter(s=>{const a=s.createdAt||0,b=Math.max(s.updatedAt||0,s.closedAt||0,a);return b>=from&&a<=to;});
+  for(const s of sess){
+    if(s.createdAt&&inRange(s.createdAt)&&s.createdByName)ev.push({ts:s.createdAt,by:s.createdByName});
+    if(s.closedAt&&inRange(s.closedAt)&&s.closedByName)ev.push({ts:s.closedAt,by:s.closedByName});
+    (s.boxes||[]).forEach(b=>{if(b.createdAt&&inRange(b.createdAt)&&b.by)ev.push({ts:b.createdAt,by:b.by});});
+    let sc=scanCache.get(s.id);if(!sc||!s.closedAt){const snap=await getDocs(scansCol(s.id));sc=snap.docs.map(d=>({ts:d.data().ts,by:d.data().by}));scanCache.set(s.id,sc);}
+    sc.forEach(x=>{if(x.ts&&inRange(x.ts)&&x.by)ev.push(x);});}
+  const real=new Set(actRows.map(r=>r.name+'|'+dayKey(r.start)));   // zilele cu jurnal real nu se estimează
+  const g=new Map();ev.forEach(e=>{const k=e.by+'|'+dayKey(e.ts);if(real.has(k))return;const o=g.get(k)||{name:e.by,start:e.ts,end:e.ts,n:0};o.start=Math.min(o.start,e.ts);o.end=Math.max(o.end,e.ts);o.n++;g.set(k,o);});
+  return [...g.values()].map(o=>({id:'est|'+o.name+'|'+dayKey(o.start),name:o.name,role:'',start:o.start,end:o.end,lastSeen:o.end,est:true,n:o.n,device:'estimat din scanări · '+o.n+' acțiuni'}));}
+$('actIncEst').onchange=actLoad;
 function actRender(){const tb=$('actTbl').querySelector('tbody');tb.innerHTML='';const now=Date.now();
   actRows.forEach(r=>{const live=!r.end&&now-(r.lastSeen||r.start)<HEARTBEAT_MS*2;const end=r.end||r.lastSeen||r.start;
-    const tr=document.createElement('tr');tr.innerHTML=`<td><b>${esc(r.name||'')}</b></td><td>${fmtDate(r.start)}</td><td>${live?'<span class="tag" style="background:#14532d;color:#86efac">activ acum</span>':fmtDate(end)+(r.end?'':' <span class="muted">(ultima activitate)</span>')}</td><td>${fmtDur((live?now:end)-r.start)}</td><td class="muted">${esc(r.device||'')}</td>`;tb.appendChild(tr);});
+    const tr=document.createElement('tr');tr.innerHTML=`<td><b>${esc(r.name||'')}</b></td><td>${fmtDate(r.start)}</td><td>${r.est?fmtDate(end)+' <span class="tag" style="background:#78350f;color:#fcd34d">estimat</span>':live?'<span class="tag" style="background:#14532d;color:#86efac">activ acum</span>':fmtDate(end)+(r.end?'':' <span class="muted">(ultima activitate)</span>')}</td><td>${fmtDur((live&&!r.est?now:end)-r.start)}</td><td class="muted">${esc(r.device||'')}</td>`;tb.appendChild(tr);});
   const users=new Set(actRows.map(r=>r.name)).size,tot=actRows.reduce((a,r)=>a+((r.end||r.lastSeen||r.start)-r.start),0);
-  $('actSummary').textContent=actRows.length?`${actRows.length} vizite · ${users} utilizatori · timp total ${fmtDur(tot)}`:'Nicio înregistrare în interval.';}
+  const nEst=actRows.filter(r=>r.est).length;$('actSummary').textContent=actRows.length?`${actRows.length} vizite (${nEst} estimate) · ${users} utilizatori · timp total ${fmtDur(tot)}`:'Nicio înregistrare în interval.';}
 $('btnActivity').onclick=()=>{if(!$('actFrom').value){const d=new Date(Date.now()-6*864e5);$('actFrom').value=dayKey(d.getTime());$('actTo').value=dayKey(Date.now());}$('mAct').classList.add('show');actLoad();};
 $('actClose').onclick=()=>$('mAct').classList.remove('show');
 $('actRefresh').onclick=actLoad;
 $('actExport').onclick=()=>{if(!actRows.length){toast('Nimic de exportat');return;}if(typeof XLSX==='undefined'){toast('Biblioteca Excel nu s-a încărcat');return;}
   const now=Date.now();const rows=actRows.map(r=>{const live=!r.end&&now-(r.lastSeen||r.start)<HEARTBEAT_MS*2;const end=r.end||r.lastSeen||r.start;
-    return {User:r.name,Role:r.role,'Login':fmtDate(r.start),'Logout':live?'active now':fmtDate(end),'Logout type':r.end?'closed':live?'active':'last activity','Duration (min)':Math.round(((live?now:end)-r.start)/60000),Device:r.device||''};});
+    return {User:r.name,Role:r.role,'Login':fmtDate(r.start),'Logout':r.est?fmtDate(end):live?'active now':fmtDate(end),'Type':r.est?'estimated from scans ('+r.n+' actions)':r.end?'closed':live?'active':'last activity','Duration (min)':Math.round(((live&&!r.est?now:end)-r.start)/60000),Device:r.est?'':(r.device||'')};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'User log');XLSX.writeFile(wb,`user_log_${$('actFrom').value||''}_${$('actTo').value||''}.xlsx`);};
 function subscribe(){
   unsubSessions=onSnapshot(query(collection(db,'sessions'),orderBy('createdAt','desc'),limit(150)),snap=>{
