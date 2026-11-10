@@ -83,6 +83,7 @@
   <button class="iconbtn" id="btnBack" style="display:none">‹ Înapoi</button>
   <h1 id="title">Retur Marfă</h1>
   <button class="iconbtn" id="btnUsers" style="display:none" title="Utilizatori">👥</button>
+  <button class="iconbtn" id="btnActivity" style="display:none" title="Jurnal utilizatori">👣</button>
   <button class="iconbtn" id="btnSettings" style="display:none" title="Setări">⚙</button>
   <button class="iconbtn" id="btnLogout" style="display:none" title="Ieșire">⎋</button>
 </header>
@@ -179,7 +180,7 @@
     <p class="muted">Un utilizator dezactivat nu mai poate intra. PIN-ul poate fi schimbat doar de utilizatorul însuși (din ⚙); dacă l-a uitat, dezactivează-i contul și creează-i unul nou cu alt nume.</p>
   </section>
 </main>
-<footer>Retur Marfă · sortare by voice · <span id="whoami"></span> · <span class="muted">v2026-11-06f</span></footer>
+<footer>Retur Marfă · sortare by voice · <span id="whoami"></span> · <span class="muted">v2026-11-10a</span></footer>
 
 <!-- Settings modal -->
 <div class="modal" id="mSettings"><div class="box">
@@ -266,6 +267,19 @@
   <button class="btn sec" id="mbCancel">Renunță</button>
 </div></div>
 
+<!-- Jurnal utilizatori (admin) -->
+<div class="modal" id="mAct"><div class="box" style="max-width:720px">
+  <h3>Jurnal utilizatori</h3>
+  <p class="muted" style="margin:4px 0 10px">Se înregistrează automat când un utilizator are aplicația deschisă (fără login/logout explicit). „Ieșire” = momentul în care a închis aplicația sau a trecut pe alt ecran; o vizită întreruptă sub 10 minute continuă același rând.</p>
+  <div class="row">
+    <div><label>De la</label><input type="date" id="actFrom"></div>
+    <div><label>Până la</label><input type="date" id="actTo"></div>
+  </div>
+  <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap"><button class="btn sec" id="actRefresh" style="flex:1">Reîncarcă</button><button class="btn sec" id="actExport" style="flex:1">⬇ Excel</button></div>
+  <div id="actSummary" class="muted" style="margin:4px 0"></div>
+  <div style="overflow:auto;max-height:55vh"><table class="tbl" id="actTbl"><thead><tr><th>Utilizator</th><th>Intrare</th><th>Ieșire</th><th>Durată</th><th>Dispozitiv</th></tr></thead><tbody></tbody></table></div>
+  <button class="btn sec" id="actClose" style="margin-top:12px">Închide</button>
+</div></div>
 <!-- Coș sesiuni șterse -->
 <div class="modal" id="mTrash"><div class="box">
   <h3>Sesiuni șterse</h3>
@@ -296,7 +310,7 @@ import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
          updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentSingleTabManager, doc, collection, setDoc, getDoc, updateDoc, deleteDoc, addDoc,
-         onSnapshot, query, orderBy, limit, runTransaction, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+         onSnapshot, query, orderBy, limit, where, runTransaction, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 /* ================= CONFIG FIREBASE – COMPLETEAZĂ AICI ================= */
 const firebaseConfig = {
@@ -418,14 +432,14 @@ onAuthStateChanged(auth,async user=>{
     if(!snap.exists()||snap.data().active!==true){$('lErr').textContent=snap.exists()?'Contul este dezactivat.':'Contul nu este autorizat de admin.';await signOut(auth);return;}
     me=Object.assign({uid:user.uid},snap.data());
     $('whoami').textContent=me.name+' ('+me.role+')';
-    $('btnUsers').style.display=me.role==='admin'?'':'none';
-    $('btnSettings').style.display='';$('btnLogout').style.display='';
+    $('btnUsers').style.display=me.role==='admin'?'':'none';$('btnActivity').style.display=me.role==='admin'?'':'none';
+    $('btnSettings').style.display='';$('btnLogout').style.display='';presenceStart();
     $('sSendersWrap').style.display=me.role==='admin'?'':'none';
     subscribe();if(me.role==='admin')syncLogins();show('scrHome');
   }catch(e){$('lErr').textContent='Eroare la citirea contului: '+(e.code||e.message);await signOut(auth);}
 });
 $('btnLogout').onclick=async()=>{if(confirmTwice($('btnLogout'),'⎋','Sigur?')){await signOut(auth);}};
-function teardown(){[unsubSessions,unsubCur,unsubUsers,unsubCfg,unsubScans,unsubProd,unsubLoginsSync].forEach(u=>u&&u());unsubSessions=unsubCur=unsubUsers=unsubCfg=unsubScans=unsubProd=unsubLoginsSync=null;lastLoginsJson=null;if($('scrLogin'))renderTiles();cur=null;curScans=[];
+function teardown(){presenceStop();[unsubSessions,unsubCur,unsubUsers,unsubCfg,unsubScans,unsubProd,unsubLoginsSync].forEach(u=>u&&u());unsubSessions=unsubCur=unsubUsers=unsubCfg=unsubScans=unsubProd=unsubLoginsSync=null;lastLoginsJson=null;if($('scrLogin'))renderTiles();cur=null;curScans=[];
   ['btnUsers','btnSettings','btnLogout'].forEach(i=>$(i).style.display='none');$('whoami').textContent='';}
 const DELETE_PIN='0000';   // PIN cerut la orice ștergere
 let pinCb=null,pinOpts=null,pinBusy=false;
@@ -448,6 +462,44 @@ function confirmTwice(btn,label,ask){if(btn.dataset.arm){delete btn.dataset.arm;
 
 /* ================= FIRESTORE SUBSCRIPTIONS ================= */
 let sessions=[];
+/* ---- prezență: jurnal automat de intrare/ieșire (fără login/logout explicit) ---- */
+const HEARTBEAT_MS=2*60*1000,RESUME_GAP_MS=10*60*1000;
+let presId=null,presT=null,presLastHidden=0;
+const deviceLabel=()=>{const ua=navigator.userAgent;const os=/iPad/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)?'iPad':/iPhone/.test(ua)?'iPhone':/Android/.test(ua)?(/Mobile/.test(ua)?'Android telefon':'Android tabletă'):/Windows/.test(ua)?'Windows':/Mac/.test(ua)?'Mac':'alt';
+  const br=/EdgA?\//.test(ua)?'Edge':/CriOS|Chrome\//.test(ua)?'Chrome':/Safari\//.test(ua)?'Safari':'browser';const pwa=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;return os+' · '+br+(pwa?' · app':'');};
+async function presenceOpen(){if(!me)return;try{
+    const ref=await addDoc(collection(db,'activity'),{uid:me.uid,name:me.name,role:me.role,start:Date.now(),lastSeen:Date.now(),end:null,device:deviceLabel()});presId=ref.id;
+  }catch(e){console.warn('activity',e.code);}}
+async function presenceBeat(){if(!presId||document.visibilityState!=='visible')return;try{await updateDoc(doc(db,'activity',presId),{lastSeen:Date.now(),end:null});}catch(e){}}
+async function presenceClose(){if(!presId)return;const id=presId;presLastHidden=Date.now();try{await updateDoc(doc(db,'activity',id),{lastSeen:Date.now(),end:Date.now()});}catch(e){}}
+function presenceStart(){presenceStop(true);if(document.visibilityState==='visible')presenceOpen();presT=setInterval(presenceBeat,HEARTBEAT_MS);}
+function presenceStop(keepHandlers){clearInterval(presT);presT=null;if(presId){presenceClose();presId=null;}}
+document.addEventListener('visibilitychange',()=>{if(!me)return;
+  if(document.visibilityState==='hidden'){presenceClose();}
+  else{ // revenit: dacă pauza e scurtă, continuăm același rând; altfel rând nou
+    if(presId&&Date.now()-presLastHidden<RESUME_GAP_MS){presenceBeat();}else{presId=null;presenceOpen();}}});
+window.addEventListener('pagehide',()=>{if(me)presenceClose();});
+/* ---- jurnal utilizatori (admin) ---- */
+let actRows=[];
+const fmtDur=ms=>{if(ms<0)ms=0;const m=Math.round(ms/60000);return m<60?m+' min':Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')+' min';};
+async function actLoad(){if(!me||me.role!=='admin')return;const f=$('actFrom').value,t=$('actTo').value;
+  const from=f?new Date(f+'T00:00:00').getTime():Date.now()-7*864e5,to=t?new Date(t+'T23:59:59').getTime():Date.now()+864e5;
+  $('actSummary').textContent='Se încarcă…';
+  try{const snap=await getDocs(query(collection(db,'activity'),where('start','>=',from),where('start','<=',to),orderBy('start','desc'),limit(2000)));
+    actRows=snap.docs.map(d=>Object.assign({id:d.id},d.data()));}catch(e){$('actSummary').textContent='Eroare: '+e.code;return;}
+  actRender();}
+function actRender(){const tb=$('actTbl').querySelector('tbody');tb.innerHTML='';const now=Date.now();
+  actRows.forEach(r=>{const live=!r.end&&now-(r.lastSeen||r.start)<HEARTBEAT_MS*2;const end=r.end||r.lastSeen||r.start;
+    const tr=document.createElement('tr');tr.innerHTML=`<td><b>${esc(r.name||'')}</b></td><td>${fmtDate(r.start)}</td><td>${live?'<span class="tag" style="background:#14532d;color:#86efac">activ acum</span>':fmtDate(end)+(r.end?'':' <span class="muted">(ultima activitate)</span>')}</td><td>${fmtDur((live?now:end)-r.start)}</td><td class="muted">${esc(r.device||'')}</td>`;tb.appendChild(tr);});
+  const users=new Set(actRows.map(r=>r.name)).size,tot=actRows.reduce((a,r)=>a+((r.end||r.lastSeen||r.start)-r.start),0);
+  $('actSummary').textContent=actRows.length?`${actRows.length} vizite · ${users} utilizatori · timp total ${fmtDur(tot)}`:'Nicio înregistrare în interval.';}
+$('btnActivity').onclick=()=>{if(!$('actFrom').value){const d=new Date(Date.now()-6*864e5);$('actFrom').value=dayKey(d.getTime());$('actTo').value=dayKey(Date.now());}$('mAct').classList.add('show');actLoad();};
+$('actClose').onclick=()=>$('mAct').classList.remove('show');
+$('actRefresh').onclick=actLoad;
+$('actExport').onclick=()=>{if(!actRows.length){toast('Nimic de exportat');return;}if(typeof XLSX==='undefined'){toast('Biblioteca Excel nu s-a încărcat');return;}
+  const now=Date.now();const rows=actRows.map(r=>{const live=!r.end&&now-(r.lastSeen||r.start)<HEARTBEAT_MS*2;const end=r.end||r.lastSeen||r.start;
+    return {User:r.name,Role:r.role,'Login':fmtDate(r.start),'Logout':live?'active now':fmtDate(end),'Logout type':r.end?'closed':live?'active':'last activity','Duration (min)':Math.round(((live?now:end)-r.start)/60000),Device:r.device||''};});
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'User log');XLSX.writeFile(wb,`user_log_${$('actFrom').value||''}_${$('actTo').value||''}.xlsx`);};
 function subscribe(){
   unsubSessions=onSnapshot(query(collection(db,'sessions'),orderBy('createdAt','desc'),limit(150)),snap=>{
     sessions=snap.docs.map(d=>Object.assign({id:d.id},d.data()));if($('scrHome').classList.contains('active'))renderHome();if($('mTrash').classList.contains('show'))renderTrash();
